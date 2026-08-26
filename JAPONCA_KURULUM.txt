@@ -1,0 +1,12 @@
+KART OKUYUCU OLMADAN JAPONCA KURULUM
+
+SD kart CYD cihazının içinde takılı kalsın.
+
+1. PlatformIO sol menüsünden PROJECT TASKS bölümünü aç.
+2. cyd2usb_font_installer > General > Upload seçeneğine bas.
+3. CYD ekranında FONT READY yazısını bekle.
+4. Sonra cyd2usb > General > Upload seçeneğine bas.
+
+Bu işlem fontu CYD üzerinden SD karta yazar. Spotify yetkilendirmen ve Wi-Fi
+ayarların silinmez. Aynı SD kartı kullandığın sürece installer işlemini tekrar
+yapman gerekmez. Kartı değiştirir veya formatlarsan tekrar yap.

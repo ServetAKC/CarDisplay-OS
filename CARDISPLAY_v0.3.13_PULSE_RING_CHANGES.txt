@@ -1,0 +1,10 @@
+Car Display OS v0.3.13 - Universal Pulse Ring
+
+- Added a Trap City-inspired PULSE RING visualizer with 32 mirrored green neon bars.
+- Added a bass-reactive abstract geometric core with allocation-free drawing.
+- Increased the ring size and removed surrounding particles that could look like display glitches.
+- Made PULSE RING the default visualizer; tap the screen to cycle all 8 styles.
+- Removed visible Honda/HondaThing branding from the display and startup text.
+- Replaced the branded missing-album placeholder with a generic record graphic.
+- Kept legacy internal storage paths only to preserve existing settings and SD caches.
+- Kept the reduced-bass/noise filtering, smooth Wi-Fi reconnect, and Japanese SD font installer.

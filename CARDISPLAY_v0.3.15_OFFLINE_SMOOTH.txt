@@ -1,0 +1,13 @@
+Car Display OS v0.3.15 - Offline Visualizer + Smooth Frames
+
+- Added an OFFLINE VISUALIZER button to the Wi-Fi Setup screen.
+- WiFiManager captive portal now runs non-blocking while touch/audio/UI are serviced.
+- Setup hotspot and web page remain active behind the offline visualizer.
+- The visualizer X returns to Wi-Fi Setup instead of opening the Spotify player.
+- Wi-Fi setup exits normally as soon as valid credentials connect.
+- All 16 visualizers now render into an off-screen 320x200 8-bit frame buffer.
+- Completed frames are pushed in one operation to remove clear-pass flicker/glitches.
+- Visualizer refresh increased from about 18 FPS to about 24 FPS.
+- The frame buffer is dynamically released when the visualizer closes.
+- Radial mode was constrained below the header so it cannot corrupt UI pixels.
+- Required libraries remain bundled for offline PlatformIO configuration.

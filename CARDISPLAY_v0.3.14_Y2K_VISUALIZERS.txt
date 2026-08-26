@@ -1,0 +1,21 @@
+Car Display OS v0.3.14 - Y2K Green Visualizer Pack
+
+Eight new brand-free green modes were added:
+
+1. CYBER GRID - reactive skyline over a moving perspective grid
+2. LASER TUNNEL - pulsing nested neon diamonds
+3. DATA RAIN - audio-reactive falling data trails
+4. NEON WAVE - bright CRT-style waveform with reflection
+5. ORBIT LINK - rotating connected frequency nodes
+6. PIXEL CITY - music-driven green city skyline
+7. RADAR 2000 - rotating sweep with frequency blips
+8. DUAL DISC - twin rotating audio decks
+
+There are now 16 visualizer styles in total. Tap while the visualizer is open
+to cycle modes. Every new mode repaints a fixed black canvas each frame to avoid
+old pixels, particle trails and edge glitches.
+
+OFFLINE PROJECT FIX
+- Required CYD libraries are included in the lib folder.
+- Internet library dependencies were removed from platformio.ini.
+- PlatformIO no longer loops between library download mirrors while configuring.
