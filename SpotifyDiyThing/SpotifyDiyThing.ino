@@ -1,116 +1,59 @@
 /*******************************************************************
-    Displays Album Art on a 320 x 240 ESP32.
+    Car Display OS - Spotify album art, clock and microphone
+    visualizers on a 320 x 240 ESP32 "Cheap Yellow Display"
+    (ESP32-2432S028R).
 
-    Parts:
-    ESP32 With Built in 320x240 LCD with Touch Screen (ESP32-2432S028R)
-    https://github.com/witnessmenow/Spotify-Diy-Thing#hardware-required
+    This file is deliberately thin: it wires the modules together and
+    runs the loop. The work lives in
 
+      deviceConfig.*        persisted settings (credentials + region)
+      WifiManagerHandler.*  connect / captive setup portal
+      refreshToken.*        one-page Spotify authorisation helper
+      spotifyLogic.*        polling, playback commands, queue prefetch
+      cheapYellowLCD.*      the CYD screen, which in turn owns
+        albumArtCache.*       cover download and caching
+        backlightController.* brightness and sunset dimming
+        visualizerRenderer.*  the sixteen microphone modes
+
+    Hardware: https://github.com/witnessmenow/Spotify-Diy-Thing#hardware-required
  *******************************************************************/
 
 // ----------------------------
 // Display type
-// ---------------------------
-
-// This project currently supports the following displays
-// (Uncomment the required #define)
-
-// 1. Cheap yellow display (Using TFT-eSPI library)
-// #define YELLOW_DISPLAY
-
-// 2. Matrix Displays (Like the ESP32 Trinity)
-// #define MATRIX_DISPLAY
-
-// If no defines are set, it will default to CYD
+// ----------------------------
+// 1. Cheap yellow display (TFT-eSPI)   -> YELLOW_DISPLAY
+// 2. Matrix displays (ESP32 Trinity)   -> MATRIX_DISPLAY
 #if !defined(YELLOW_DISPLAY) && !defined(MATRIX_DISPLAY)
-#define YELLOW_DISPLAY // Default to Yellow Display for display type
+#define YELLOW_DISPLAY
 #endif
 
-// NFC disabled for the CYD car display build. Re-enable only when a PN532 is connected.
+// NFC is disabled for the CYD car build. Re-enable only with a PN532 attached.
 // #define NFC_ENABLED 1
 
-// This causes issues in certain circumstances e.g. Play an album and let it auto play to related songs
-bool writeContextToNfc = true;
-unsigned long nextWiFiReconnectTime = 0;
-
-// ----------------------------
-// Library Defines - Need to be defined before library import
-// ----------------------------
-
-// ----------------------------
-// Standard Libraries
-// ----------------------------
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
-
 #include <FS.h>
-#include "SPIFFS.h"
-
-// ----------------------------
-// Additional Libraries - each one of these will need to be installed.
-// ----------------------------
-
-#include <WiFiManager.h>
-// Captive portal for configuring the WiFi
-
-// If installing from the library manager (Search for "WifiManager")
-// https://github.com/tzapu/WiFiManager
-
-// ArduinoJson is included first so the private/public shim below only affects
-// SpotifyArduino itself. The shim exposes the library's generic response parser
-// helpers for the optional queue-prefetch request.
-#include <ArduinoJson.h>
-#define private public
+#include <SPIFFS.h>
 #include <SpotifyArduino.h>
-#undef private
+#include <WiFi.h>
+#include <WiFiManager.h>
 
-// including a "spotify_server_cert" variable
-// header is included as part of the SpotifyArduino libary
-#include <SpotifyArduinoCert.h>
-
-WiFiClientSecure client;
-WiFiClientSecure controlClient;
-WiFiClientSecure queueClient;
-
-//------- Replace the following! ------
-
-// Country code, including this is advisable
-#define SPOTIFY_MARKET "IE"
-//------- ---------------------- ------
-
-// ----------------------------
-// Internal includes
-// ----------------------------
-#include "refreshToken.h"
-
-#include "spotifyDisplay.h"
-
-#include "spotifyLogic.h"
-
-#include "configFile.h"
-
-#include "serialPrint.h"
-
+#include "deviceConfig.h"
 #include "powerCycleDetector.h"
-
+#include "refreshToken.h"
+#include "spotifyDisplay.h"
+#include "spotifyLogic.h"
+#include "timing.h"
+#include "version.h"
 #include "WifiManagerHandler.h"
 
-// ----------------------------
-// Display Handling Code
-// ----------------------------
-
 #if defined YELLOW_DISPLAY
-
 #include "cheapYellowLCD.h"
 CheapYellowDisplay cyd;
 SpotifyDisplay *spotifyDisplay = &cyd;
-
 #elif defined MATRIX_DISPLAY
 #include "matrixDisplay.h"
 MatrixDisplay matrixDisplay;
 SpotifyDisplay *spotifyDisplay = &matrixDisplay;
-
 #endif
-// ----------------------------
 
 #ifdef HONDATHING_FONT_INSTALLER
 #include "fontInstaller.h"
@@ -118,18 +61,76 @@ SpotifyDisplay *spotifyDisplay = &matrixDisplay;
 
 #ifdef NFC_ENABLED
 #include "nfc.h"
+// Writing the context URI can misbehave when an album auto-plays into related
+// songs, so it stays opt-in.
+bool writeContextToNfc = true;
 #endif
+
+namespace
+{
+constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 5000;
+constexpr unsigned long WIFI_RETRY_WINDOW_MS = 5000;
+
+unsigned long nextWiFiReconnectTime = 0;
 
 void drawWifiManagerMessage(WiFiManager *myWiFiManager)
 {
-  // Stop the saved-network animation before WiFiManager switches to its AP portal.
+  // Stop the saved-network animation before WiFiManager switches to its portal.
   spotifyDisplay->stopWiFiConnectingAnimation();
   spotifyDisplay->drawWifiManagerMessage(myWiFiManager);
 }
 
+// Keeps the UI alive and retries the saved network without rebooting. A dropped
+// phone hotspot must never send the unit into the setup portal or a reset loop.
+void waitForWiFi(bool forceConfig)
+{
+  bool connected = setupWiFiManager(forceConfig, deviceConfig,
+                                    &drawWifiManagerMessage, spotifyDisplay);
+
+  while (!connected)
+  {
+    servicePowerCycleDetector();
+
+    if (forceConfig)
+    {
+      Serial.println(F("Wi-Fi setup timed out; reopening setup portal"));
+      connected = setupWiFiManager(true, deviceConfig,
+                                   &drawWifiManagerMessage, spotifyDisplay);
+      continue;
+    }
+
+    Serial.println(F("Waiting for saved Wi-Fi..."));
+    WiFi.reconnect();
+    const unsigned long retryDeadline = deadlineIn(WIFI_RETRY_WINDOW_MS);
+    while (WiFi.status() != WL_CONNECTED && !timeReached(retryDeadline))
+    {
+      servicePowerCycleDetector();
+      delay(20);
+    }
+    connected = WiFi.status() == WL_CONNECTED;
+  }
+}
+
+// GPIO 0 (the CYD boot button) forces a fresh Spotify authorisation.
+bool refreshTokenForced()
+{
+#if defined YELLOW_DISPLAY
+  pinMode(0, INPUT); // has an internal pullup
+  if (digitalRead(0) == LOW)
+  {
+    Serial.println(F("GPIO 0 is low, forcing a new refresh token"));
+    return true;
+  }
+#endif
+  return false;
+}
+} // namespace
+
 void setup()
 {
   Serial.begin(115200);
+  Serial.println();
+  Serial.println(F(CARDISPLAY_BUILD_TAG));
 
 #ifdef HONDATHING_FONT_INSTALLER
   runHondaJapaneseFontInstaller();
@@ -140,102 +141,50 @@ void setup()
   WiFi.setAutoReconnect(true);
   WiFi.setSleep(false);
 
-  bool spiffsInitSuccess = SPIFFS.begin(false) || SPIFFS.begin(true);
-  if (!spiffsInitSuccess)
+  if (!(SPIFFS.begin(false) || SPIFFS.begin(true)))
   {
-    Serial.println("SPIFFS initialisation failed!");
-    while (1)
-      yield(); // Stay here twiddling thumbs waiting
+    Serial.println(F("SPIFFS initialisation failed!"));
+    while (true)
+      delay(1000);
   }
-  Serial.println("\r\nInitialisation done.");
 
   const bool quickPowerCycle = detectQuickPowerCycle();
   if (quickPowerCycle)
-  {
     Serial.println(F("Forcing config mode after a quick double power cycle"));
-  }
 
-  refreshToken[0] = '\0';
-  const bool spotifyConfigAvailable = fetchConfigFile(refreshToken, clientId, clientSecret);
-  const bool forceConfig = quickPowerCycle || !spotifyConfigAvailable;
+  const bool configAvailable = loadDeviceConfig(deviceConfig);
+  const bool forceConfig = quickPowerCycle || !configAvailable;
 
   spotifyDisplay->displaySetup(&spotify);
   spotifyDisplay->startWiFiConnectingAnimation();
 
-  bool wifiConnected = setupWiFiManager(forceConfig, refreshToken,
-                                        &saveConfigFile, &drawWifiManagerMessage,
-                                        spotifyDisplay);
-
-  // A normal boot never opens the setup portal just because the phone hotspot
-  // is late. Keep the UI alive and retry the saved network without rebooting.
-  while (!wifiConnected)
-  {
-    servicePowerCycleDetector();
-    if (forceConfig)
-    {
-      Serial.println("Wi-Fi setup timed out; reopening setup portal");
-      wifiConnected = setupWiFiManager(true, refreshToken,
-                                      &saveConfigFile, &drawWifiManagerMessage,
-                                      spotifyDisplay);
-    }
-    else
-    {
-      Serial.println("Waiting for saved Wi-Fi...");
-      WiFi.reconnect();
-      const unsigned long retryDeadline = millis() + 5000UL;
-      while (WiFi.status() != WL_CONNECTED && millis() < retryDeadline)
-      {
-        servicePowerCycleDetector();
-        delay(20);
-      }
-      wifiConnected = WiFi.status() == WL_CONNECTED;
-    }
-  }
+  waitForWiFi(forceConfig);
 
   spotifyDisplay->stopWiFiConnectingAnimation();
   clearPowerCycleMarker();
-  Serial.print("IP address: ");
+  Serial.print(F("IP address: "));
   Serial.println(WiFi.localIP());
 
 #ifdef NFC_ENABLED
-  if (nfcSetup(&spotify, spotifyDisplay))
-    Serial.println("NFC Good");
-  else
-    Serial.println("NFC Bad");
+  Serial.println(nfcSetup(&spotify, spotifyDisplay) ? F("NFC good") : F("NFC bad"));
 #endif
 
-  spotifySetup(spotifyDisplay, clientId, clientSecret);
+  spotifySetup(spotifyDisplay, deviceConfig);
 
-#if defined YELLOW_DISPLAY
-
-  pinMode(0, INPUT); // has an internal pullup
-  bool forceRefreshToken = digitalRead(0) == LOW;
-  if (forceRefreshToken)
+  if (refreshTokenForced() || deviceConfig.refreshToken[0] == '\0')
   {
-    Serial.println("GPIO 0 is low, forcing refreshToken");
-  }
-
-#else
-  bool forceRefreshToken = false;
-
-#endif
-
-  // Check if we have a refresh Token
-  if (forceRefreshToken || refreshToken[0] == '\0')
-  {
-
     spotifyDisplay->drawRefreshTokenMessage();
-    Serial.println("Launching refresh token flow");
-    if (launchRefreshTokenFlow(&spotify, clientId))
+    Serial.println(F("Launching refresh token flow"));
+    if (launchRefreshTokenFlow(&spotify, deviceConfig))
     {
-      Serial.println("Spotify authorization completed");
-      saveConfigFile(refreshToken, clientId, clientSecret);
+      Serial.println(F("Spotify authorization completed"));
+      saveDeviceConfig(deviceConfig);
     }
   }
 
-  spotifyRefreshToken(refreshToken);
-  spotifyControlSetup(clientId, clientSecret, refreshToken);
-  spotifyQueueSetup(clientId, clientSecret, refreshToken);
+  spotifyRefreshToken(deviceConfig.refreshToken);
+  spotifyControlSetup(deviceConfig);
+  spotifyQueueSetup(deviceConfig);
 
   spotifyDisplay->showDefaultScreen();
 }
@@ -244,11 +193,11 @@ void loop()
 {
   servicePowerCycleDetector();
 
-  // A dropped phone hotspot must not send the unit into setup or a reset loop.
-  // Retry quietly in the background and keep the last screen responsive.
-  if (WiFi.status() != WL_CONNECTED && millis() >= nextWiFiReconnectTime)
+  // Retry a dropped hotspot quietly in the background; the last screen stays
+  // responsive throughout.
+  if (WiFi.status() != WL_CONNECTED && timeReached(nextWiFiReconnectTime))
   {
-    nextWiFiReconnectTime = millis() + 5000UL;
+    nextWiFiReconnectTime = deadlineIn(WIFI_RECONNECT_INTERVAL_MS);
     WiFi.reconnect();
   }
 
@@ -257,20 +206,13 @@ void loop()
   bool forceUpdate = false;
 
 #ifdef NFC_ENABLED
-  if (writeContextToNfc)
-  {
-    forceUpdate = nfcLoop(lastTrackUri, lastTrackContextUri);
-  }
-  else
-  {
-    forceUpdate = nfcLoop(lastTrackUri);
-  }
-
+  forceUpdate = writeContextToNfc ? nfcLoop(lastTrackUri, lastTrackContextUri)
+                                  : nfcLoop(lastTrackUri);
 #endif
 
   // Keep the visualizer render loop isolated from synchronous Spotify HTTPS
-  // polling. Those requests can block for seconds and were the real cause of the
-  // random animation freezes. Polling and progress resume on exit.
+  // polling: those requests can block for seconds and were the real cause of
+  // the random animation freezes. Polling resumes as soon as the overlay closes.
 #if defined YELLOW_DISPLAY
   const bool visualizerActive = cyd.isVisualizerActive();
 #else
@@ -285,6 +227,6 @@ void loop()
     updateProgressBar();
   }
 
-  // Give Wi-Fi and the display worker tasks time without slowing the UI.
+  // Give Wi-Fi and the worker tasks time without slowing the UI.
   delay(1);
 }

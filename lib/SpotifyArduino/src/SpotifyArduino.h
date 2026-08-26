@@ -220,6 +220,20 @@ public:
   Client *client;
   void lateInit(const char *clientId, const char *clientSecret, const char *refreshToken = "");
 
+  // -------------------------------------------------------------------------
+  // Car Display OS additions.
+  //
+  // The firmware streams /v1/me/player/queue itself so it can apply an
+  // ArduinoJson filter and keep peak RAM low. Doing that needs the bearer token
+  // and the header/close helpers, which are private. Exposing three thin
+  // accessors replaces the `#define private public` shim the sketch used to
+  // wrap this header in - that shim changed the class layout for every
+  // translation unit that saw it and is an ODR violation.
+  // -------------------------------------------------------------------------
+  const char *bearerToken() const { return _bearerToken; }
+  void consumeResponseHeaders(bool tossUnexpectedForJSON = true) { skipHeaders(tossUnexpectedForJSON); }
+  void finishRequest() { closeClient(); }
+
 #ifdef SPOTIFY_DEBUG
   char *stack_start;
 #endif

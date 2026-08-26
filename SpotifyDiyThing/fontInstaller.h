@@ -2,14 +2,14 @@
 
 #include <Arduino.h>
 #include <SD.h>
-#include <TFT_eSPI.h>
+#include "cydTheme.h"
 
 extern const uint8_t hondaInstallerFontStart[]
     asm("_binary_firmware_assets_jp16_huf_start");
 extern const uint8_t hondaInstallerFontEnd[]
     asm("_binary_firmware_assets_jp16_huf_end");
 
-static constexpr const char *HONDATHING_FONT_DIR = "/hondathing";
+static constexpr const char *FONT_INSTALLER_DIR = "/hondathing";
 static constexpr const char *HONDATHING_FONT_PATH = "/hondathing/jp16.huf";
 static constexpr const char *HONDATHING_FONT_TEMP = "/hondathing/jp16.tmp";
 

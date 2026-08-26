@@ -1,6 +1,12 @@
 #ifndef SPOTIFYDISPLAY_H
 #define SPOTIFYDISPLAY_H
 
+#include <Arduino.h>
+#include <SpotifyArduino.h>
+#include <WiFiManager.h>
+
+#include "deviceConfig.h"
+
 class SpotifyDisplay {
   public:
     virtual void displaySetup(SpotifyArduino *spotifyObj) = 0;
@@ -44,12 +50,7 @@ class SpotifyDisplay {
     virtual void drawRefreshTokenMessage() = 0;
 
     void setAlbumArtUrl(const char* albumArtUrl){
-      if (albumArtUrl == nullptr) {
-        _albumArtUrl[0] = '\0';
-        return;
-      }
-      strncpy(_albumArtUrl, albumArtUrl, sizeof(_albumArtUrl) - 1);
-      _albumArtUrl[sizeof(_albumArtUrl) - 1] = '\0';
+      copyField(_albumArtUrl, albumArtUrl);
     }
 
     char* getAlbumArtUrl(){
