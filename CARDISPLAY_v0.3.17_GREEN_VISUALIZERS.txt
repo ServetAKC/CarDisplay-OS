@@ -1,0 +1,32 @@
+Car Display OS v0.3.17 - One green palette, four more visualizers
+
+Colour
+- The visualizers no longer run on a separate Y2K palette. Its mint (teal) and
+  lime (yellow-green) steps read as a different product from the player screen;
+  everything now uses the same green family as the header, the Spotify badge,
+  the Wi-Fi bars and the close button.
+- theme::VIZ_CORE / DEEP / GLOW / MID / BRIGHT / PEAK is a pure brightness ramp,
+  with MID and BRIGHT being literally the player UI's green and bright green.
+- The modes that used hue for variety now use brightness. The pulse ring rotated
+  through three hues around the circle; it rotates through three brightness
+  steps instead, so the banding survives without a flashing near-white step.
+- The OFFLINE VISUALIZER button on the Wi-Fi setup screen follows the same ramp.
+
+New modes (16 -> 20)
+- STARFIELD    stars rushing outward on an ellipse, speed set by loudness,
+               brightness standing in for depth.
+- DNA HELIX    two counter-phase strands with rungs; band level opens the helix
+               wider at each column.
+- RIPPLE POOL  rings emitted on kick drums. Edge-triggered on the low five bands
+               so one long bass note emits one ring, not a wall of them.
+- PHASE SCOPE  the waveform plotted against a quarter-period-delayed copy of
+               itself: a steady tone draws a stable loop, noise draws a scribble.
+
+All four are bounded to the 320 x 200 overlay - a circular field would have
+clipped top and bottom, so the starfield travels on an ellipse and the ripple
+radius is capped.
+
+Table integrity
+- MODES is now declared with a deduced size and begin() static_asserts that it
+  matches MODE_COUNT, so adding a row without bumping the count is a build
+  error instead of a null draw pointer at runtime.

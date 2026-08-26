@@ -948,9 +948,9 @@ void CheapYellowDisplay::drawWifiSetupScreen()
   tft.drawString("Setup address:", 18, 120, 2);
   tft.setTextColor(theme::GREEN, TFT_BLACK);
   tft.drawCentreString(wifiSetupIp, layout::CENTRE_X, 139, 4);
-  tft.drawRect(32, 176, 256, 56, theme::Y2K_GLOW);
-  tft.drawRect(34, 178, 252, 52, theme::Y2K_NEON);
-  tft.setTextColor(theme::Y2K_MINT, TFT_BLACK);
+  tft.drawRect(32, 176, 256, 56, theme::VIZ_GLOW);
+  tft.drawRect(34, 178, 252, 52, theme::VIZ_MID);
+  tft.setTextColor(theme::VIZ_BRIGHT, TFT_BLACK);
   tft.drawCentreString("OFFLINE VISUALIZER", layout::CENTRE_X, 186, 2);
   tft.setTextColor(theme::DIM, TFT_BLACK);
   tft.drawCentreString("MIC MODE - NO INTERNET", layout::CENTRE_X, 207, 1);

@@ -25,13 +25,19 @@ constexpr uint16_t DIM = 0x2363;
 constexpr uint16_t DARK = 0x1A22;
 constexpr uint16_t PROGRESS_TRACK = 0x2A65; // dark muted green, unplayed line
 
-// Brighter Y2K palette used by the retro visualizer modes.
-constexpr uint16_t Y2K_NEON = 0x2FEC;
-constexpr uint16_t Y2K_LIME = 0xAFE7;
-constexpr uint16_t Y2K_MINT = 0x67F6;
-constexpr uint16_t Y2K_GLOW = 0x03E7;
-constexpr uint16_t Y2K_DEEP = 0x0183;
-constexpr uint16_t CORE_DARK = 0x10C4;
+// Visualizer brightness ramp, darkest to brightest.
+//
+// The retro modes used to run on their own Y2K palette, whose mint (teal) and
+// lime (yellow-green) steps read as a different product from the player screen.
+// The ramp below stays inside the same green family as the header, the close
+// button and the transport icons: the modes that used hue for variety now use
+// brightness, which is what the old palette was really being used for anyway.
+constexpr uint16_t VIZ_CORE = 0x0881;   // near-black core fill
+constexpr uint16_t VIZ_DEEP = 0x0A61;   // barely-there grid lines and fills
+constexpr uint16_t VIZ_GLOW = DIM;      // background structure
+constexpr uint16_t VIZ_MID = GREEN;     // the workhorse, same as the player UI
+constexpr uint16_t VIZ_BRIGHT = BRIGHT; // active / loud
+constexpr uint16_t VIZ_PEAK = PRESS;    // peaks and highlights
 } // namespace theme
 
 namespace layout

@@ -1,6 +1,6 @@
-# Car Display OS v0.3.16
+# Car Display OS v0.3.17
 
-Spotify album art, a full-screen clock and sixteen microphone visualizers on a
+Spotify album art, a full-screen clock and twenty microphone visualizers on a
 2-USB Cheap Yellow Display (ESP32-2432S028R). Online it follows Spotify; offline
 it runs the INMP441 visualizers, so the unit is useful before the phone hotspot
 comes up and while the setup portal is still open.
@@ -15,7 +15,7 @@ The version number lives in exactly one place: `SpotifyDiyThing/version.h`.
   so the screen never waits on the network.
 - **Clock** - tap the header clock for a full-screen clock. Spotify polling and
   cover downloads keep running behind it.
-- **Visualizers** - tap the Wi-Fi bars for sixteen microphone modes; tap
+- **Visualizers** - tap the Wi-Fi bars for twenty microphone modes; tap
   anywhere to cycle, the top-right X to close. Buffered into an off-screen
   frame and pushed at ~24 FPS, so there is no visible clear pass.
 - **Offline mode** - the Wi-Fi setup screen has an `OFFLINE VISUALIZER` button.

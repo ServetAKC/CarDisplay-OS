@@ -7,7 +7,7 @@
 #include "cydTheme.h"
 
 // ---------------------------------------------------------------------------
-// The sixteen microphone visualizers.
+// The microphone visualizers.
 //
 // v0.3.15 kept the mode list in four places that all had to agree: an enum, a
 // name switch, a dispatch switch, and an `style >= CYBER_GRID` range test for
@@ -18,7 +18,7 @@
 // Rendering goes through canvas(): an off-screen 8-bit sprite when the
 // allocation succeeds, and the panel directly when it does not. Differential
 // modes (spectrum, block EQ, oscilloscope...) repaint only what changed;
-// buffered Y2K modes clear and redraw, which is why they are pushed as one
+// buffered modes clear and redraw, which is why they are pushed as one
 // completed frame instead of letting the user see the clear pass.
 // ---------------------------------------------------------------------------
 
@@ -53,7 +53,11 @@ public:
 
 private:
   static constexpr size_t PULSE_RING_BAR_COUNT = AudioVisualizer::BAR_COUNT * 2;
-  static constexpr size_t MODE_COUNT = 16;
+  static constexpr size_t MODE_COUNT = 20;
+
+  // Particle counts for the modes that carry their own state.
+  static constexpr size_t STAR_COUNT = 30;
+  static constexpr size_t RIPPLE_COUNT = 5;
 
   // ~24 FPS. Fluid enough to read as motion, cheap enough to leave the ESP32
   // room for Wi-Fi and the Spotify clients.
@@ -71,7 +75,10 @@ private:
     bool continuous;
   };
 
-  static const ModeDef MODES[MODE_COUNT];
+  // Size is deduced from the definition in the .cpp; begin() static_asserts that
+  // it matches MODE_COUNT, so a row added without bumping the count is a build
+  // error rather than a null draw pointer at runtime.
+  static const ModeDef MODES[];
 
   AudioVisualizer audioVisualizer;
   bool micOk = false;
@@ -100,6 +107,11 @@ private:
   int vuPeakWidth = 0;
   unsigned long vuPeakHoldUntil = 0;
   int waterfallWriteY = 64;
+  uint8_t starAngle[STAR_COUNT] = {};
+  uint8_t starRadius[STAR_COUNT] = {};
+  uint8_t rippleRadius[RIPPLE_COUNT] = {};
+  uint8_t rippleStrength[RIPPLE_COUNT] = {};
+  bool rippleArmed = true;
   unsigned long lastWaterfallAdvanceTime = 0;
 
   TFT_eSPI &canvas();
@@ -138,6 +150,10 @@ private:
   void drawPixelCity(const Frame &frame, bool force);
   void drawRadar2000(const Frame &frame, bool force);
   void drawDualDisc(const Frame &frame, bool force);
+  void drawStarfield(const Frame &frame, bool force);
+  void drawDnaHelix(const Frame &frame, bool force);
+  void drawRipplePool(const Frame &frame, bool force);
+  void drawPhaseScope(const Frame &frame, bool force);
 };
 
 // Shared by both full-screen overlays (clock and visualizer).

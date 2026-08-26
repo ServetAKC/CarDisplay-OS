@@ -6,8 +6,8 @@
 #include "timing.h"
 
 // The one list of visualizer modes. Order here is the order the on-screen
-// "n/16" counter and the tap-to-cycle sequence follow.
-const VisualizerRenderer::ModeDef VisualizerRenderer::MODES[VisualizerRenderer::MODE_COUNT] = {
+// "n/N" counter and the tap-to-cycle sequence follow.
+const VisualizerRenderer::ModeDef VisualizerRenderer::MODES[] = {
     {"SPECTRUM", &VisualizerRenderer::drawSpectrumWithPeaks, true},
     {"MIRRORED", &VisualizerRenderer::drawMirroredSpectrum, false},
     {"OSCILLOSCOPE", &VisualizerRenderer::drawOscilloscope, false},
@@ -24,10 +24,27 @@ const VisualizerRenderer::ModeDef VisualizerRenderer::MODES[VisualizerRenderer::
     {"PIXEL CITY", &VisualizerRenderer::drawPixelCity, true},
     {"RADAR 2000", &VisualizerRenderer::drawRadar2000, true},
     {"DUAL DISC", &VisualizerRenderer::drawDualDisc, true},
+    {"STARFIELD", &VisualizerRenderer::drawStarfield, true},
+    {"DNA HELIX", &VisualizerRenderer::drawDnaHelix, true},
+    {"RIPPLE POOL", &VisualizerRenderer::drawRipplePool, true},
+    {"PHASE SCOPE", &VisualizerRenderer::drawPhaseScope, true},
 };
 
 namespace
 {
+// 32 unit vectors scaled by 1000, one every 11.25 degrees. Shared by every mode
+// that needs a direction without pulling in floating-point trig per frame.
+constexpr int16_t UNIT_DX[32] = {
+    0, 195, 383, 556, 707, 831, 924, 981,
+    1000, 981, 924, 831, 707, 556, 383, 195,
+    0, -195, -383, -556, -707, -831, -924, -981,
+    -1000, -981, -924, -831, -707, -556, -383, -195};
+constexpr int16_t UNIT_DY[32] = {
+    -1000, -981, -924, -831, -707, -556, -383, -195,
+    0, 195, 383, 556, 707, 831, 924, 981,
+    1000, 981, 924, 831, 707, 556, 383, 195,
+    0, -195, -383, -556, -707, -831, -924, -981};
+
 // The mode that a fresh device starts on. Looked up by name rather than index
 // so reordering the table above cannot silently change the default.
 constexpr const char *DEFAULT_STYLE_NAME = "PULSE RING";
@@ -50,6 +67,9 @@ void drawOverlayCloseButton()
 
 bool VisualizerRenderer::begin()
 {
+  static_assert(sizeof(MODES) / sizeof(MODES[0]) == MODE_COUNT,
+                "MODE_COUNT must match the number of rows in the MODES table");
+
   for (size_t i = 0; i < MODE_COUNT; ++i)
   {
     if (strcmp(MODES[i].name, DEFAULT_STYLE_NAME) == 0)
@@ -196,6 +216,19 @@ void VisualizerRenderer::resetDrawingState()
   vuPeakHoldUntil = 0;
   waterfallWriteY = 64;
   lastWaterfallAdvanceTime = 0;
+
+  // Seed the starfield deterministically: 11 is coprime with 32, so stepping by
+  // it walks every direction before repeating, and staggering the radii means
+  // the first frame is already a spread field rather than one expanding ring.
+  for (size_t i = 0; i < STAR_COUNT; ++i)
+  {
+    starAngle[i] = static_cast<uint8_t>((i * 11U) & 31U);
+    starRadius[i] = static_cast<uint8_t>(4 + (i * 113U) % 145U);
+  }
+
+  memset(rippleRadius, 0, sizeof(rippleRadius));
+  memset(rippleStrength, 0, sizeof(rippleStrength));
+  rippleArmed = true;
 }
 
 void VisualizerRenderer::drawMicError()
@@ -669,21 +702,24 @@ void VisualizerRenderer::drawPulseRing(const Frame &frame, bool force)
     const int perpX = -DY[i];
     const int perpY = DX[i];
 
-    uint16_t color = theme::Y2K_NEON;
-    uint16_t glowColor = theme::Y2K_DEEP;
+    // The ring used to rotate through three hues. Inside one green family that
+    // becomes a brightness rotation, which keeps the banding without the
+    // flashing-white effect a near-white step would give.
+    uint16_t color = theme::VIZ_MID;
+    uint16_t glowColor = theme::VIZ_DEEP;
     const uint8_t colorPhase = i % 12U;
     if (colorPhase >= 4U && colorPhase < 9U)
     {
-      color = theme::Y2K_LIME;
-      glowColor = theme::Y2K_GLOW;
+      color = theme::VIZ_BRIGHT;
+      glowColor = theme::VIZ_GLOW;
     }
     else if (colorPhase >= 9U)
     {
-      color = theme::Y2K_MINT;
-      glowColor = theme::Y2K_GLOW;
+      color = theme::VIZ_GLOW;
+      glowColor = theme::VIZ_DEEP;
     }
     if (level > 78)
-      color = theme::Y2K_MINT;
+      color = theme::VIZ_PEAK;
 
     for (int offset = -1; offset <= 1; ++offset)
     {
@@ -704,28 +740,28 @@ void VisualizerRenderer::drawPulseRing(const Frame &frame, bool force)
   const uint8_t coreEnergy = constrain((overall * 2U + bassAverage) / 3U, 0U, 100U);
   const int coreRadius = map(coreEnergy, 0, 100, 25, 38);
   tft.fillCircle(CENTRE_X, CENTRE_Y, INNER_RADIUS - 2, TFT_BLACK);
-  tft.drawCircle(CENTRE_X, CENTRE_Y, INNER_RADIUS, theme::Y2K_GLOW);
-  tft.drawCircle(CENTRE_X, CENTRE_Y, INNER_RADIUS - 2, theme::Y2K_DEEP);
-  tft.fillCircle(CENTRE_X, CENTRE_Y, coreRadius - 7, theme::CORE_DARK);
-  tft.drawCircle(CENTRE_X, CENTRE_Y, coreRadius, theme::Y2K_NEON);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, INNER_RADIUS, theme::VIZ_GLOW);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, INNER_RADIUS - 2, theme::VIZ_DEEP);
+  tft.fillCircle(CENTRE_X, CENTRE_Y, coreRadius - 7, theme::VIZ_CORE);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, coreRadius, theme::VIZ_MID);
   tft.drawLine(CENTRE_X, CENTRE_Y - coreRadius,
-               CENTRE_X + coreRadius, CENTRE_Y, theme::Y2K_MINT);
+               CENTRE_X + coreRadius, CENTRE_Y, theme::VIZ_BRIGHT);
   tft.drawLine(CENTRE_X + coreRadius, CENTRE_Y,
-               CENTRE_X, CENTRE_Y + coreRadius, theme::Y2K_LIME);
+               CENTRE_X, CENTRE_Y + coreRadius, theme::VIZ_PEAK);
   tft.drawLine(CENTRE_X, CENTRE_Y + coreRadius,
-               CENTRE_X - coreRadius, CENTRE_Y, theme::Y2K_NEON);
+               CENTRE_X - coreRadius, CENTRE_Y, theme::VIZ_MID);
   tft.drawLine(CENTRE_X - coreRadius, CENTRE_Y,
-               CENTRE_X, CENTRE_Y - coreRadius, theme::Y2K_MINT);
+               CENTRE_X, CENTRE_Y - coreRadius, theme::VIZ_BRIGHT);
   const int innerDiamond = max(8, coreRadius - 11);
   tft.drawLine(CENTRE_X, CENTRE_Y - innerDiamond,
-               CENTRE_X + innerDiamond, CENTRE_Y, theme::Y2K_GLOW);
+               CENTRE_X + innerDiamond, CENTRE_Y, theme::VIZ_GLOW);
   tft.drawLine(CENTRE_X + innerDiamond, CENTRE_Y,
-               CENTRE_X, CENTRE_Y + innerDiamond, theme::Y2K_DEEP);
+               CENTRE_X, CENTRE_Y + innerDiamond, theme::VIZ_DEEP);
   tft.drawLine(CENTRE_X, CENTRE_Y + innerDiamond,
-               CENTRE_X - innerDiamond, CENTRE_Y, theme::Y2K_DEEP);
+               CENTRE_X - innerDiamond, CENTRE_Y, theme::VIZ_DEEP);
   tft.drawLine(CENTRE_X - innerDiamond, CENTRE_Y,
-               CENTRE_X, CENTRE_Y - innerDiamond, theme::Y2K_GLOW);
-  tft.fillCircle(CENTRE_X, CENTRE_Y, 3, theme::Y2K_MINT);
+               CENTRE_X, CENTRE_Y - innerDiamond, theme::VIZ_GLOW);
+  tft.fillCircle(CENTRE_X, CENTRE_Y, 3, theme::VIZ_BRIGHT);
 
   endFrame(tft);
   present();
@@ -745,26 +781,26 @@ void VisualizerRenderer::drawCyberGrid(const Frame &frame, bool force)
   tft.fillRect(0, 40, 320, 200, TFT_BLACK);
 
   const int sunRadius = map(overall, 0, 100, 10, 22);
-  tft.drawCircle(160, 67, sunRadius, theme::Y2K_GLOW);
-  tft.drawCircle(160, 67, max(4, sunRadius - 4), theme::Y2K_DEEP);
+  tft.drawCircle(160, 67, sunRadius, theme::VIZ_GLOW);
+  tft.drawCircle(160, 67, max(4, sunRadius - 4), theme::VIZ_DEEP);
 
   // Audio skyline at the vanishing line.
   for (size_t i = 0; i < AudioVisualizer::BAR_COUNT; ++i)
   {
     const int x = 8 + static_cast<int>(i) * 19;
     const int height = map(levels[i], 0, 100, 2, 43);
-    const uint16_t color = levels[i] > 70 ? theme::Y2K_LIME : theme::Y2K_GLOW;
-    tft.fillRect(x, HORIZON_Y - height, 12, height, theme::Y2K_DEEP);
+    const uint16_t color = levels[i] > 70 ? theme::VIZ_PEAK : theme::VIZ_GLOW;
+    tft.fillRect(x, HORIZON_Y - height, 12, height, theme::VIZ_DEEP);
     tft.drawFastHLine(x, HORIZON_Y - height, 12, color);
   }
 
-  tft.drawFastHLine(0, HORIZON_Y, 320, theme::Y2K_NEON);
+  tft.drawFastHLine(0, HORIZON_Y, 320, theme::VIZ_MID);
   for (int ray = 0; ray <= 10; ++ray)
   {
     const int bottomX = 8 + ray * 30;
     const uint8_t level = levels[(ray * 3) % AudioVisualizer::BAR_COUNT];
     tft.drawLine(160, HORIZON_Y, bottomX, BOTTOM_Y,
-                 level > 55 ? theme::Y2K_GLOW : theme::Y2K_DEEP);
+                 level > 55 ? theme::VIZ_GLOW : theme::VIZ_DEEP);
   }
 
   const int phase = retroVisualizerFrame % 16U;
@@ -773,7 +809,7 @@ void VisualizerRenderer::drawCyberGrid(const Frame &frame, bool force)
     const int distance = (row * 16 + phase) % 143;
     const int y = HORIZON_Y + (distance * distance) / 143;
     if (y <= BOTTOM_Y)
-      tft.drawFastHLine(7, y, 306, y > 190 ? theme::Y2K_GLOW : theme::Y2K_DEEP);
+      tft.drawFastHLine(7, y, 306, y > 190 ? theme::VIZ_GLOW : theme::VIZ_DEEP);
   }
   endFrame(tft);
   present();
@@ -797,9 +833,9 @@ void VisualizerRenderer::drawLaserTunnel(const Frame &frame, bool force)
     int radius = 18 + ((layer * 17 + retroVisualizerFrame * 2U) % 76U);
     radius += map(levels[(layer * 2) % AudioVisualizer::BAR_COUNT], 0, 100, 0, 6);
     radius = min(radius, 94);
-    const uint16_t color = layer % 3 == 0 ? theme::Y2K_MINT
-                             : layer % 3 == 1 ? theme::Y2K_NEON
-                                              : theme::Y2K_GLOW;
+    const uint16_t color = layer % 3 == 0 ? theme::VIZ_BRIGHT
+                             : layer % 3 == 1 ? theme::VIZ_MID
+                                              : theme::VIZ_GLOW;
     tft.drawLine(CENTRE_X, CENTRE_Y - radius,
                  CENTRE_X + radius, CENTRE_Y, color);
     tft.drawLine(CENTRE_X + radius, CENTRE_Y,
@@ -811,9 +847,9 @@ void VisualizerRenderer::drawLaserTunnel(const Frame &frame, bool force)
   }
 
   const int core = map(overall, 0, 100, 5, 16);
-  tft.fillCircle(CENTRE_X, CENTRE_Y, core, theme::Y2K_DEEP);
-  tft.drawCircle(CENTRE_X, CENTRE_Y, core, theme::Y2K_LIME);
-  tft.drawFastHLine(CENTRE_X - core, CENTRE_Y, core * 2 + 1, theme::Y2K_NEON);
+  tft.fillCircle(CENTRE_X, CENTRE_Y, core, theme::VIZ_DEEP);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, core, theme::VIZ_PEAK);
+  tft.drawFastHLine(CENTRE_X - core, CENTRE_Y, core * 2 + 1, theme::VIZ_MID);
   endFrame(tft);
   present();
 }
@@ -840,16 +876,16 @@ void VisualizerRenderer::drawDataRain(const Frame &frame, bool force)
       int y = headY - trail * 9;
       while (y < 46)
         y += 185;
-      const uint16_t color = trail == 0 ? theme::Y2K_MINT
-                               : trail == 1 ? theme::Y2K_NEON
-                               : trail < 4 ? theme::Y2K_GLOW
-                                           : theme::Y2K_DEEP;
+      const uint16_t color = trail == 0 ? theme::VIZ_BRIGHT
+                               : trail == 1 ? theme::VIZ_MID
+                               : trail < 4 ? theme::VIZ_GLOW
+                                           : theme::VIZ_DEEP;
       const int width = trail == 0 ? 8 : 6;
       tft.fillRect(x + (8 - width) / 2, y, width, 3, color);
     }
 
     if (levels[column] > 72)
-      tft.drawPixel(x + 4, headY - 2, theme::Y2K_LIME);
+      tft.drawPixel(x + 4, headY - 2, theme::VIZ_PEAK);
   }
   endFrame(tft);
   present();
@@ -869,8 +905,8 @@ void VisualizerRenderer::drawNeonWave(const Frame &frame, bool force)
   beginFrame(tft);
   tft.fillRect(0, 40, 320, 200, TFT_BLACK);
   for (int y = 48; y <= 230; y += 12)
-    tft.drawFastHLine(0, y, 320, theme::Y2K_DEEP);
-  tft.drawFastHLine(0, CENTRE_Y, 320, theme::Y2K_GLOW);
+    tft.drawFastHLine(0, y, 320, theme::VIZ_DEEP);
+  tft.drawFastHLine(0, CENTRE_Y, 320, theme::VIZ_GLOW);
 
   int previousX = LEFT;
   int previousY = map(waveform[0], 0, 100, 210, 68);
@@ -881,10 +917,10 @@ void VisualizerRenderer::drawNeonWave(const Frame &frame, bool force)
                              (AudioVisualizer::WAVEFORM_COUNT - 1);
     const int y = map(waveform[i], 0, 100, 210, 68);
     const int echoY = CENTRE_Y * 2 - y;
-    tft.drawLine(previousX, previousEchoY, x, echoY, theme::Y2K_DEEP);
-    tft.drawLine(previousX, previousY + 2, x, y + 2, theme::Y2K_GLOW);
+    tft.drawLine(previousX, previousEchoY, x, echoY, theme::VIZ_DEEP);
+    tft.drawLine(previousX, previousY + 2, x, y + 2, theme::VIZ_GLOW);
     tft.drawLine(previousX, previousY, x, y,
-                 overall > 70 ? theme::Y2K_LIME : theme::Y2K_MINT);
+                 overall > 70 ? theme::VIZ_PEAK : theme::VIZ_BRIGHT);
     previousX = x;
     previousY = y;
     previousEchoY = echoY;
@@ -918,9 +954,9 @@ void VisualizerRenderer::drawOrbitLink(const Frame &frame, bool force)
 
   beginFrame(tft);
   tft.fillRect(0, 40, 320, 200, TFT_BLACK);
-  tft.drawCircle(CENTRE_X, CENTRE_Y, 34, theme::Y2K_DEEP);
-  tft.drawCircle(CENTRE_X, CENTRE_Y, 62, theme::Y2K_GLOW);
-  tft.drawCircle(CENTRE_X, CENTRE_Y, 88, theme::Y2K_DEEP);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, 34, theme::VIZ_DEEP);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, 62, theme::VIZ_GLOW);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, 88, theme::VIZ_DEEP);
 
   for (size_t i = 0; i < AudioVisualizer::BAR_COUNT; ++i)
   {
@@ -932,14 +968,14 @@ void VisualizerRenderer::drawOrbitLink(const Frame &frame, bool force)
   for (size_t i = 0; i < AudioVisualizer::BAR_COUNT; ++i)
   {
     const size_t next = (i + 1U) % AudioVisualizer::BAR_COUNT;
-    tft.drawLine(nodeX[i], nodeY[i], nodeX[next], nodeY[next], theme::Y2K_GLOW);
-    const uint16_t color = levels[i] > 68 ? theme::Y2K_LIME : theme::Y2K_NEON;
+    tft.drawLine(nodeX[i], nodeY[i], nodeX[next], nodeY[next], theme::VIZ_GLOW);
+    const uint16_t color = levels[i] > 68 ? theme::VIZ_PEAK : theme::VIZ_MID;
     tft.fillCircle(nodeX[i], nodeY[i], levels[i] > 68 ? 3 : 2, color);
   }
 
   const int core = map(overall, 0, 100, 8, 19);
-  tft.fillCircle(CENTRE_X, CENTRE_Y, core, theme::Y2K_DEEP);
-  tft.drawCircle(CENTRE_X, CENTRE_Y, core, theme::Y2K_MINT);
+  tft.fillCircle(CENTRE_X, CENTRE_Y, core, theme::VIZ_DEEP);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, core, theme::VIZ_BRIGHT);
   endFrame(tft);
   present();
 }
@@ -954,28 +990,28 @@ void VisualizerRenderer::drawPixelCity(const Frame &frame, bool force)
   ++retroVisualizerFrame;
   beginFrame(tft);
   tft.fillRect(0, 40, 320, 200, TFT_BLACK);
-  tft.drawFastHLine(0, BASELINE, 320, theme::Y2K_NEON);
+  tft.drawFastHLine(0, BASELINE, 320, theme::VIZ_MID);
 
   for (size_t i = 0; i < AudioVisualizer::BAR_COUNT; ++i)
   {
     const int x = 4 + static_cast<int>(i) * 20;
     const int height = 14 + map(levels[i], 0, 100, 0, 143);
     const int top = BASELINE - height;
-    tft.fillRect(x, top, 15, height, theme::Y2K_DEEP);
-    tft.drawFastVLine(x, top, height, theme::Y2K_GLOW);
-    tft.drawFastVLine(x + 14, top, height, theme::Y2K_GLOW);
-    tft.drawFastHLine(x, top, 15, levels[i] > 70 ? theme::Y2K_LIME : theme::Y2K_NEON);
+    tft.fillRect(x, top, 15, height, theme::VIZ_DEEP);
+    tft.drawFastVLine(x, top, height, theme::VIZ_GLOW);
+    tft.drawFastVLine(x + 14, top, height, theme::VIZ_GLOW);
+    tft.drawFastHLine(x, top, 15, levels[i] > 70 ? theme::VIZ_PEAK : theme::VIZ_MID);
 
     int windowRow = 0;
     for (int y = BASELINE - 9; y > top + 4; y -= 14, ++windowRow)
     {
       const bool lit = (retroVisualizerFrame + i + windowRow) % 4U != 0U;
-      const uint16_t windowColor = lit ? theme::Y2K_GLOW : TFT_BLACK;
+      const uint16_t windowColor = lit ? theme::VIZ_GLOW : TFT_BLACK;
       tft.fillRect(x + 3, y, 3, 3, windowColor);
       tft.fillRect(x + 9, y, 3, 3, windowColor);
     }
     if (levels[i] > 82)
-      tft.drawFastVLine(x + 7, top - 8, 8, theme::Y2K_MINT);
+      tft.drawFastVLine(x + 7, top - 8, 8, theme::VIZ_BRIGHT);
   }
   endFrame(tft);
   present();
@@ -1003,11 +1039,11 @@ void VisualizerRenderer::drawRadar2000(const Frame &frame, bool force)
 
   beginFrame(tft);
   tft.fillRect(0, 40, 320, 200, TFT_BLACK);
-  tft.drawCircle(CENTRE_X, CENTRE_Y, 28, theme::Y2K_DEEP);
-  tft.drawCircle(CENTRE_X, CENTRE_Y, 57, theme::Y2K_GLOW);
-  tft.drawCircle(CENTRE_X, CENTRE_Y, 88, theme::Y2K_NEON);
-  tft.drawFastHLine(CENTRE_X - 88, CENTRE_Y, 177, theme::Y2K_DEEP);
-  tft.drawFastVLine(CENTRE_X, CENTRE_Y - 88, 177, theme::Y2K_DEEP);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, 28, theme::VIZ_DEEP);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, 57, theme::VIZ_GLOW);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, 88, theme::VIZ_MID);
+  tft.drawFastHLine(CENTRE_X - 88, CENTRE_Y, 177, theme::VIZ_DEEP);
+  tft.drawFastVLine(CENTRE_X, CENTRE_Y - 88, 177, theme::VIZ_DEEP);
 
   const int sweep = retroVisualizerFrame % 32U;
   for (int tail = 2; tail >= 0; --tail)
@@ -1015,7 +1051,7 @@ void VisualizerRenderer::drawRadar2000(const Frame &frame, bool force)
     const int direction = (sweep + 32 - tail) % 32;
     const int endX = CENTRE_X + (DX[direction] * 87) / 1000;
     const int endY = CENTRE_Y + (DY[direction] * 87) / 1000;
-    const uint16_t color = tail == 0 ? theme::Y2K_MINT : tail == 1 ? theme::Y2K_GLOW : theme::Y2K_DEEP;
+    const uint16_t color = tail == 0 ? theme::VIZ_BRIGHT : tail == 1 ? theme::VIZ_GLOW : theme::VIZ_DEEP;
     tft.drawLine(CENTRE_X, CENTRE_Y, endX, endY, color);
   }
 
@@ -1028,9 +1064,9 @@ void VisualizerRenderer::drawRadar2000(const Frame &frame, bool force)
     const int x = CENTRE_X + (DX[direction] * radius) / 1000;
     const int y = CENTRE_Y + (DY[direction] * radius) / 1000;
     tft.fillCircle(x, y, levels[i] > 70 ? 3 : 2,
-                   levels[i] > 70 ? theme::Y2K_LIME : theme::Y2K_NEON);
+                   levels[i] > 70 ? theme::VIZ_PEAK : theme::VIZ_MID);
   }
-  tft.fillCircle(CENTRE_X, CENTRE_Y, map(overall, 0, 100, 2, 6), theme::Y2K_MINT);
+  tft.fillCircle(CENTRE_X, CENTRE_Y, map(overall, 0, 100, 2, 6), theme::VIZ_BRIGHT);
   endFrame(tft);
   present();
 }
@@ -1056,8 +1092,8 @@ void VisualizerRenderer::drawDualDisc(const Frame &frame, bool force)
   tft.fillRect(0, 40, 320, 200, TFT_BLACK);
   for (int deck = 0; deck < 2; ++deck)
   {
-    tft.drawCircle(CENTRE_X[deck], CENTRE_Y, 35, theme::Y2K_DEEP);
-    tft.drawCircle(CENTRE_X[deck], CENTRE_Y, 52, theme::Y2K_GLOW);
+    tft.drawCircle(CENTRE_X[deck], CENTRE_Y, 35, theme::VIZ_DEEP);
+    tft.drawCircle(CENTRE_X[deck], CENTRE_Y, 52, theme::VIZ_GLOW);
     for (size_t i = 0; i < AudioVisualizer::BAR_COUNT; ++i)
     {
       const size_t source = deck == 0 ? i : AudioVisualizer::BAR_COUNT - 1U - i;
@@ -1067,18 +1103,18 @@ void VisualizerRenderer::drawDualDisc(const Frame &frame, bool force)
       const int startY = CENTRE_Y + (DY[direction] * 36) / 1000;
       const int endX = CENTRE_X[deck] + (DX[direction] * radius) / 1000;
       const int endY = CENTRE_Y + (DY[direction] * radius) / 1000;
-      const uint16_t color = levels[source] > 68 ? theme::Y2K_LIME : theme::Y2K_NEON;
+      const uint16_t color = levels[source] > 68 ? theme::VIZ_PEAK : theme::VIZ_MID;
       tft.drawLine(startX, startY, endX, endY, color);
       if (levels[source] > 58)
-        tft.fillCircle(endX, endY, 2, theme::Y2K_MINT);
+        tft.fillCircle(endX, endY, 2, theme::VIZ_BRIGHT);
     }
     const int hub = map(overall, 0, 100, 7, 14);
-    tft.fillCircle(CENTRE_X[deck], CENTRE_Y, hub, theme::Y2K_DEEP);
-    tft.drawCircle(CENTRE_X[deck], CENTRE_Y, hub, theme::Y2K_MINT);
+    tft.fillCircle(CENTRE_X[deck], CENTRE_Y, hub, theme::VIZ_DEEP);
+    tft.drawCircle(CENTRE_X[deck], CENTRE_Y, hub, theme::VIZ_BRIGHT);
   }
-  tft.drawFastHLine(139, 216, 43, theme::Y2K_DEEP);
+  tft.drawFastHLine(139, 216, 43, theme::VIZ_DEEP);
   const int sliderX = 139 + map(levels[7], 0, 100, 0, 42);
-  tft.fillCircle(sliderX, 216, 3, theme::Y2K_NEON);
+  tft.fillCircle(sliderX, 216, 3, theme::VIZ_MID);
   endFrame(tft);
   present();
 }
@@ -1152,4 +1188,300 @@ void VisualizerRenderer::drawWaterfall(const Frame &frame, bool force)
   present();
 
   waterfallWriteY += ROW_STEP;
+}
+
+// ---------------------------------------------------------------------------
+// Modes added in v0.3.17. All four run on their own clock, so they are marked
+// continuous in the table and clear their frame each pass.
+// ---------------------------------------------------------------------------
+
+void VisualizerRenderer::drawStarfield(const Frame &frame, bool force)
+{
+  TFT_eSPI &tft = canvas();
+  const uint8_t *levels __attribute__((unused)) = frame.levels;
+  const uint8_t *waveform __attribute__((unused)) = frame.waveform;
+  const uint8_t overall __attribute__((unused)) = frame.overall;
+
+  static constexpr int CENTRE_X = 160;
+  static constexpr int CENTRE_Y = 139;
+  // The overlay is 320 x 200, so a circular field would clip top and bottom.
+  // Stars travel on an ellipse instead: full width, 62% of it vertically.
+  static constexpr int MAX_RADIUS = 150;
+  static constexpr int Y_SQUASH = 62; // percent
+  static constexpr int SPAWN_RADIUS = 4;
+
+  ++retroVisualizerFrame;
+
+  // Loudness drives how fast the field rushes past. The floor of 2 keeps the
+  // mode alive in a quiet cabin instead of freezing into a still image.
+  const int speed = 2 + overall / 14;
+
+  beginFrame(tft);
+  tft.fillRect(0, 40, 320, 200, TFT_BLACK);
+
+  for (size_t i = 0; i < STAR_COUNT; ++i)
+  {
+    const int previousRadius = starRadius[i];
+    int radius = previousRadius + speed;
+
+    if (radius >= MAX_RADIUS)
+    {
+      // Respawn near the centre pointing somewhere new.
+      radius = SPAWN_RADIUS;
+      starAngle[i] = static_cast<uint8_t>((starAngle[i] + 11U + (retroVisualizerFrame & 7U)) & 31U);
+      starRadius[i] = static_cast<uint8_t>(radius);
+      continue; // no streak across the respawn, it would cut the screen in half
+    }
+    starRadius[i] = static_cast<uint8_t>(radius);
+
+    const int8_t angle = starAngle[i] & 31;
+    const int x = CENTRE_X + (UNIT_DX[angle] * radius) / 1000;
+    const int y = CENTRE_Y + (UNIT_DY[angle] * radius * Y_SQUASH) / 100000;
+    const int trailX = CENTRE_X + (UNIT_DX[angle] * previousRadius) / 1000;
+    const int trailY = CENTRE_Y + (UNIT_DY[angle] * previousRadius * Y_SQUASH) / 100000;
+
+    // Distance stands in for depth: far stars are faint, near ones are bright.
+    uint16_t color = theme::VIZ_DEEP;
+    if (radius > 118)
+      color = theme::VIZ_PEAK;
+    else if (radius > 85)
+      color = theme::VIZ_BRIGHT;
+    else if (radius > 48)
+      color = theme::VIZ_MID;
+    else if (radius > 24)
+      color = theme::VIZ_GLOW;
+
+    tft.drawLine(trailX, trailY, x, y, color);
+    if (radius > 85)
+      tft.fillCircle(x, y, radius > 126 ? 2 : 1, color);
+  }
+
+  // A small core so the vanishing point reads as a point, not an empty hole.
+  const int core = map(overall, 0, 100, 2, 7);
+  tft.fillCircle(CENTRE_X, CENTRE_Y, core, theme::VIZ_CORE);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, core, theme::VIZ_MID);
+
+  endFrame(tft);
+  present();
+}
+
+void VisualizerRenderer::drawDnaHelix(const Frame &frame, bool force)
+{
+  TFT_eSPI &tft = canvas();
+  const uint8_t *levels __attribute__((unused)) = frame.levels;
+  const uint8_t *waveform __attribute__((unused)) = frame.waveform;
+  const uint8_t overall __attribute__((unused)) = frame.overall;
+
+  static constexpr int LEFT = 10;
+  static constexpr int RIGHT = 310;
+  static constexpr int CENTRE_Y = 139;
+  static constexpr int COLUMN_STEP = 6;
+  static constexpr int COLUMNS = (RIGHT - LEFT) / COLUMN_STEP + 1;
+
+  ++retroVisualizerFrame;
+
+  beginFrame(tft);
+  tft.fillRect(0, 40, 320, 200, TFT_BLACK);
+  tft.drawFastHLine(LEFT, CENTRE_Y, RIGHT - LEFT, theme::VIZ_DEEP);
+
+  const uint8_t phase = static_cast<uint8_t>(retroVisualizerFrame & 31U);
+
+  int previousTopY = CENTRE_Y;
+  int previousBottomY = CENTRE_Y;
+
+  for (int column = 0; column < COLUMNS; ++column)
+  {
+    const int x = LEFT + column * COLUMN_STEP;
+    const size_t band = static_cast<size_t>(column) % AudioVisualizer::BAR_COUNT;
+    const uint8_t level = levels[band];
+
+    // Each strand is one sine, half a turn apart; the band level sets how wide
+    // the helix opens at this column.
+    const int amplitude = 16 + (level * 62) / 100;
+    const uint8_t angle = static_cast<uint8_t>((column * 2U + phase) & 31U);
+    const int offset = (UNIT_DX[angle] * amplitude) / 1000;
+
+    const int topY = CENTRE_Y - offset;
+    const int bottomY = CENTRE_Y + offset;
+
+    const uint16_t strandColor = level > 62 ? theme::VIZ_BRIGHT : theme::VIZ_MID;
+
+    if (column > 0)
+    {
+      tft.drawLine(x - COLUMN_STEP, previousTopY, x, topY, strandColor);
+      tft.drawLine(x - COLUMN_STEP, previousBottomY, x, bottomY, theme::VIZ_GLOW);
+    }
+
+    // Rungs every third column, brightest where the strands are furthest apart.
+    if (column % 3 == 0)
+    {
+      const uint16_t rungColor = level > 70 ? theme::VIZ_PEAK
+                                 : level > 34 ? theme::VIZ_GLOW
+                                              : theme::VIZ_DEEP;
+      tft.drawLine(x, topY, x, bottomY, rungColor);
+    }
+
+    tft.fillCircle(x, topY, level > 62 ? 2 : 1, strandColor);
+    tft.fillCircle(x, bottomY, level > 62 ? 2 : 1, theme::VIZ_MID);
+
+    previousTopY = topY;
+    previousBottomY = bottomY;
+  }
+
+  endFrame(tft);
+  present();
+}
+
+void VisualizerRenderer::drawRipplePool(const Frame &frame, bool force)
+{
+  TFT_eSPI &tft = canvas();
+  const uint8_t *levels __attribute__((unused)) = frame.levels;
+  const uint8_t *waveform __attribute__((unused)) = frame.waveform;
+  const uint8_t overall __attribute__((unused)) = frame.overall;
+
+  static constexpr int CENTRE_X = 160;
+  static constexpr int CENTRE_Y = 139;
+  // Capped so the outermost ring still fits the 200 px overlay height.
+  static constexpr int MAX_RADIUS = 96;
+  static constexpr uint8_t SPAWN_THRESHOLD = 34;
+  static constexpr uint8_t REARM_THRESHOLD = 20;
+
+  ++retroVisualizerFrame;
+
+  // Low bands only: a ripple should mean a kick, not a cymbal. Edge-triggered
+  // through rippleArmed so one long bass note emits one ring, not a wall.
+  const uint8_t bassEnergy = static_cast<uint8_t>(
+      (static_cast<uint16_t>(levels[0]) + levels[1] + levels[2] + levels[3] + levels[4]) / 5U);
+
+  if (bassEnergy < REARM_THRESHOLD)
+    rippleArmed = true;
+
+  if (rippleArmed && bassEnergy >= SPAWN_THRESHOLD)
+  {
+    for (size_t i = 0; i < RIPPLE_COUNT; ++i)
+    {
+      if (rippleStrength[i] == 0)
+      {
+        rippleRadius[i] = 6;
+        rippleStrength[i] = bassEnergy;
+        rippleArmed = false;
+        break;
+      }
+    }
+  }
+
+  beginFrame(tft);
+  tft.fillRect(0, 40, 320, 200, TFT_BLACK);
+
+  // Still surface: a few faint guide rings so the pool is visible when silent.
+  tft.drawCircle(CENTRE_X, CENTRE_Y, 32, theme::VIZ_DEEP);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, 62, theme::VIZ_DEEP);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, 92, theme::VIZ_DEEP);
+
+  for (size_t i = 0; i < RIPPLE_COUNT; ++i)
+  {
+    if (rippleStrength[i] == 0)
+      continue;
+
+    const int radius = rippleRadius[i];
+    const uint8_t strength = rippleStrength[i];
+
+    const uint16_t color = strength > 66 ? theme::VIZ_PEAK
+                           : strength > 40 ? theme::VIZ_BRIGHT
+                           : strength > 18 ? theme::VIZ_MID
+                                           : theme::VIZ_GLOW;
+
+    tft.drawCircle(CENTRE_X, CENTRE_Y, radius, color);
+    if (strength > 40 && radius > 1)
+      tft.drawCircle(CENTRE_X, CENTRE_Y, radius - 1, theme::VIZ_GLOW);
+
+    // Expand and fade. Retiring the ring at the edge frees the slot.
+    const int nextRadius = radius + 4;
+    const int nextStrength = strength - 4;
+    if (nextRadius > MAX_RADIUS || nextStrength <= 0)
+    {
+      rippleRadius[i] = 0;
+      rippleStrength[i] = 0;
+    }
+    else
+    {
+      rippleRadius[i] = static_cast<uint8_t>(nextRadius);
+      rippleStrength[i] = static_cast<uint8_t>(nextStrength);
+    }
+  }
+
+  // The drop that makes the rings: sized by overall level.
+  const int drop = map(overall, 0, 100, 3, 12);
+  tft.fillCircle(CENTRE_X, CENTRE_Y, drop, theme::VIZ_CORE);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, drop, theme::VIZ_BRIGHT);
+
+  endFrame(tft);
+  present();
+}
+
+void VisualizerRenderer::drawPhaseScope(const Frame &frame, bool force)
+{
+  TFT_eSPI &tft = canvas();
+  const uint8_t *levels __attribute__((unused)) = frame.levels;
+  const uint8_t *waveform __attribute__((unused)) = frame.waveform;
+  const uint8_t overall __attribute__((unused)) = frame.overall;
+
+  static constexpr int CENTRE_X = 160;
+  static constexpr int CENTRE_Y = 139;
+  static constexpr size_t DELAY = AudioVisualizer::WAVEFORM_COUNT / 4; // quarter turn
+  static constexpr int X_GAIN = 24; // /10, so 2.4x
+  static constexpr int Y_GAIN = 17; // /10, so 1.7x
+
+  ++retroVisualizerFrame;
+
+  beginFrame(tft);
+  tft.fillRect(0, 40, 320, 200, TFT_BLACK);
+
+  // Graticule.
+  tft.drawFastHLine(48, CENTRE_Y, 224, theme::VIZ_DEEP);
+  tft.drawFastVLine(CENTRE_X, 56, 166, theme::VIZ_DEEP);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, 76, theme::VIZ_DEEP);
+
+  // Plotting the trace against a quarter-period-delayed copy of itself turns a
+  // steady tone into a stable loop and noise into a scribble, which is exactly
+  // the read a phase scope is for.
+  int previousX = 0;
+  int previousY = 0;
+
+  for (size_t i = 0; i < AudioVisualizer::WAVEFORM_COUNT; ++i)
+  {
+    const int sampleA = static_cast<int>(waveform[i]) - AudioSpectrum::WAVE_CENTRE;
+    const int sampleB =
+        static_cast<int>(waveform[(i + DELAY) % AudioVisualizer::WAVEFORM_COUNT]) -
+        AudioSpectrum::WAVE_CENTRE;
+
+    const int x = CENTRE_X + (sampleA * X_GAIN) / 10;
+    const int y = CENTRE_Y + (sampleB * Y_GAIN) / 10;
+
+    if (i > 0)
+    {
+      // Brighten along the trace so the direction of travel is readable.
+      const uint16_t color = i > 46 ? theme::VIZ_PEAK
+                             : i > 30 ? theme::VIZ_BRIGHT
+                             : i > 14 ? theme::VIZ_MID
+                                      : theme::VIZ_GLOW;
+      tft.drawLine(previousX, previousY, x, y, color);
+    }
+
+    previousX = x;
+    previousY = y;
+  }
+
+  // Close the loop so a steady tone reads as one continuous shape.
+  const int firstSampleA = static_cast<int>(waveform[0]) - AudioSpectrum::WAVE_CENTRE;
+  const int firstSampleB =
+      static_cast<int>(waveform[DELAY]) - AudioSpectrum::WAVE_CENTRE;
+  tft.drawLine(previousX, previousY,
+               CENTRE_X + (firstSampleA * X_GAIN) / 10,
+               CENTRE_Y + (firstSampleB * Y_GAIN) / 10, theme::VIZ_GLOW);
+
+  tft.fillCircle(CENTRE_X, CENTRE_Y, 2, theme::VIZ_MID);
+
+  endFrame(tft);
+  present();
 }
