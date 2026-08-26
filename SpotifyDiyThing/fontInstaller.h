@@ -10,8 +10,8 @@ extern const uint8_t hondaInstallerFontEnd[]
     asm("_binary_firmware_assets_jp16_huf_end");
 
 static constexpr const char *FONT_INSTALLER_DIR = "/hondathing";
-static constexpr const char *HONDATHING_FONT_PATH = "/hondathing/jp16.huf";
-static constexpr const char *HONDATHING_FONT_TEMP = "/hondathing/jp16.tmp";
+static constexpr const char *FONT_INSTALLER_PATH = "/hondathing/jp16.huf";
+static constexpr const char *FONT_INSTALLER_TEMP = "/hondathing/jp16.tmp";
 
 inline void drawFontInstallerScreen(const char *title, const char *detail,
                                     uint16_t color)
@@ -45,7 +45,7 @@ inline void runHondaJapaneseFontInstaller()
     stopInFontInstaller();
   }
 
-  if (!SD.exists(HONDATHING_FONT_DIR) && !SD.mkdir(HONDATHING_FONT_DIR))
+  if (!SD.exists(FONT_INSTALLER_DIR) && !SD.mkdir(FONT_INSTALLER_DIR))
   {
     Serial.println("Font installer: could not create /hondathing");
     drawFontInstallerScreen("WRITE ERROR", "Cannot create folder", TFT_RED);
@@ -54,17 +54,17 @@ inline void runHondaJapaneseFontInstaller()
 
   const size_t fontSize = static_cast<size_t>(hondaInstallerFontEnd -
                                                hondaInstallerFontStart);
-  fs::File installed = SD.open(HONDATHING_FONT_PATH, FILE_READ);
+  fs::File installed = SD.open(FONT_INSTALLER_PATH, FILE_READ);
   const bool alreadyInstalled = installed && installed.size() == fontSize;
   if (installed)
     installed.close();
 
   if (!alreadyInstalled)
   {
-    if (SD.exists(HONDATHING_FONT_TEMP))
-      SD.remove(HONDATHING_FONT_TEMP);
+    if (SD.exists(FONT_INSTALLER_TEMP))
+      SD.remove(FONT_INSTALLER_TEMP);
 
-    fs::File output = SD.open(HONDATHING_FONT_TEMP, FILE_WRITE);
+    fs::File output = SD.open(FONT_INSTALLER_TEMP, FILE_WRITE);
     if (!output)
     {
       Serial.println("Font installer: could not open temporary file");
@@ -90,22 +90,22 @@ inline void runHondaJapaneseFontInstaller()
     output.flush();
     output.close();
 
-    fs::File verify = SD.open(HONDATHING_FONT_TEMP, FILE_READ);
+    fs::File verify = SD.open(FONT_INSTALLER_TEMP, FILE_READ);
     const bool valid = written == fontSize && verify && verify.size() == fontSize;
     if (verify)
       verify.close();
 
     if (!valid)
     {
-      SD.remove(HONDATHING_FONT_TEMP);
+      SD.remove(FONT_INSTALLER_TEMP);
       Serial.println("Font installer: write verification failed");
       drawFontInstallerScreen("WRITE ERROR", "Font copy failed", TFT_RED);
       stopInFontInstaller();
     }
 
-    if (SD.exists(HONDATHING_FONT_PATH))
-      SD.remove(HONDATHING_FONT_PATH);
-    if (!SD.rename(HONDATHING_FONT_TEMP, HONDATHING_FONT_PATH))
+    if (SD.exists(FONT_INSTALLER_PATH))
+      SD.remove(FONT_INSTALLER_PATH);
+    if (!SD.rename(FONT_INSTALLER_TEMP, FONT_INSTALLER_PATH))
     {
       Serial.println("Font installer: final rename failed");
       drawFontInstallerScreen("WRITE ERROR", "Final rename failed", TFT_RED);

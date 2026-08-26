@@ -60,6 +60,9 @@ bool AudioVisualizer::begin()
 
   i2s_zero_dma_buffer(I2S_PORT);
 
+  // Build the window and twiddle tables now rather than on the first frame.
+  spectrum.begin();
+
   if (xTaskCreatePinnedToCore(taskTrampoline, "micVisualizer", 8192, this, 1,
                               &taskHandle, 0) != pdPASS)
   {

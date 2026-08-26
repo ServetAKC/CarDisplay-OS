@@ -49,8 +49,14 @@ constexpr float RELEASE = 0.18f;
 
 AudioSpectrum::AudioSpectrum()
 {
+  reset();
+}
+
+void AudioSpectrum::begin()
+{
   buildTables();
   reset();
+  tablesReady = true;
 }
 
 void AudioSpectrum::buildTables()
@@ -75,6 +81,8 @@ void AudioSpectrum::reset()
 
 void AudioSpectrum::forwardTransform()
 {
+  ensureTables();
+
   // In-place bit reversal.
   for (size_t i = 1, j = 0; i < FFT_SIZE; ++i)
   {
@@ -128,6 +136,8 @@ void AudioSpectrum::forwardTransform()
 
 void AudioSpectrum::process(const int32_t *rawSamples, Output &out)
 {
+  ensureTables();
+
   // INMP441 provides signed 24-bit audio in the upper bits of each 32-bit word.
   float mean = 0.0f;
   for (size_t i = 0; i < FFT_SIZE; ++i)

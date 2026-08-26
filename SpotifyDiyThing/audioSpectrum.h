@@ -34,6 +34,10 @@ public:
 
   AudioSpectrum();
 
+  // Builds the window and twiddle tables. Called automatically on first use, so
+  // no caller can forget it and no trig runs during static initialisation.
+  void begin();
+
   // Clears the attack/release history. Call when the visualizer is opened so a
   // stale frame from the last session cannot bleed into the first new one.
   void reset();
@@ -65,5 +69,11 @@ private:
   float smoothed[BAR_COUNT];
   float waveformSmoothed[WAVEFORM_COUNT];
 
+  bool tablesReady = false;
   void buildTables();
+  void ensureTables()
+  {
+    if (!tablesReady)
+      begin();
+  }
 };

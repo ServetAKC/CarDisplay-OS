@@ -1,18 +1,133 @@
-# Car Display OS v0.3.15 - Offline Visualizer + Smooth Frames
+# Car Display OS v0.3.16
 
-This car-neutral CYD2USB build uses Wi-Fi + Spotify online and its INMP441 microphone visualizers offline. The Wi-Fi Setup screen has an `OFFLINE VISUALIZER` touch button; the setup hotspot stays active in the background and the visualizer X returns to setup. Its default visualizer is the brand-free green neon `PULSE RING`; tap the screen to cycle through all sixteen visualizer styles. All modes render into a temporary 8-bit frame buffer and are pushed at about 24 FPS to prevent clear-pass flicker and partial-frame glitches. The buffer is released on exit so Spotify HTTPS keeps its heap. Bluetooth and the Android companion remain removed. Saved Wi-Fi reconnects without rebooting or opening setup; quickly power-cycle twice to open Wi-Fi Setup manually. Users without an SD-card reader can upload the one-time `cyd2usb_font_installer` environment to copy the Japanese font from temporary firmware onto the inserted card. Afterwards, upload the normal lightweight `cyd2usb` environment. Playback controls use a dedicated high-priority Spotify client/task. NFC is disabled by default.
+Spotify album art, a full-screen clock and sixteen microphone visualizers on a
+2-USB Cheap Yellow Display (ESP32-2432S028R). Online it follows Spotify; offline
+it runs the INMP441 visualizers, so the unit is useful before the phone hotspot
+comes up and while the setup portal is still open.
 
-The required CYD libraries are bundled in `lib/`. PlatformIO does not need to
-download libraries or search mirrors while configuring this project.
+The version number lives in exactly one place: `SpotifyDiyThing/version.h`.
 
-Japanese installation without a card reader:
+## What it does
 
-1. Leave the FAT32 microSD card inserted in the CYD.
+- **Player** - 160x160 album art, track/artist/album with Japanese glyph
+  support, a thin progress line, and previous / play-pause / next controls.
+  Taps get optimistic feedback and are sent by a dedicated high-priority task,
+  so the screen never waits on the network.
+- **Clock** - tap the header clock for a full-screen clock. Spotify polling and
+  cover downloads keep running behind it.
+- **Visualizers** - tap the Wi-Fi bars for sixteen microphone modes; tap
+  anywhere to cycle, the top-right X to close. Buffered into an off-screen
+  frame and pushed at ~24 FPS, so there is no visible clear pass.
+- **Offline mode** - the Wi-Fi setup screen has an `OFFLINE VISUALIZER` button.
+  The setup hotspot and web page stay live behind it, and the X returns to
+  setup rather than to the player.
+- **Brightness** - tap the Spotify badge to cycle 100/75/50/25/10/5%, stored in
+  NVS. At sunset the backlight dims once to 25%; the first manual press
+  releases that cap for the rest of the night.
+- **Album cache** - covers are cached to SD as pre-decoded RGB565, and a
+  rolling window of the next eight queued covers is prefetched, so track
+  changes usually draw with no network round trip at all.
+- **Recovery** - a saved network reconnects without rebooting or opening setup.
+  Power-cycle twice quickly to force the setup portal open.
+
+## First-run setup
+
+Connect to the `SpotifyDIY` hotspot (password `thing123`) and open the address
+shown on screen. Besides the Spotify credentials the portal now configures:
+
+| Field | Default | Why it matters |
+| --- | --- | --- |
+| Spotify market | `TR` | A wrong market makes Spotify report tracks as unavailable |
+| POSIX timezone | `<+03>-3` | Drives the header and full-screen clocks |
+| Latitude / longitude | Istanbul | Drives the automatic sunset dim |
+
+These were compile-time constants pinned to Ireland and Sofia until v0.3.16.
+Settings are stored next to the credentials in `/spotify_diy_config.json`; a
+config written by an older build still loads and picks up the defaults above.
+
+## Building
+
+Everything the project needs is vendored under `lib/`, so PlatformIO never has
+to reach a library mirror while configuring.
+
+```
+pio run -e cyd2usb        # normal build (inverted panel, 2-USB CYD)
+pio run -e cyd            # same board, non-inverted panel
+pio run -t upload -e cyd2usb
+```
+
+> **If the link step fails with `cannot open map file`:** the `.pio` build
+> directory is inside a OneDrive-synced folder and the sync client intermittently
+> locks it. Uncomment the `build_dir` line in `platformio.ini`, or move the
+> project out of OneDrive. Syncing tens of thousands of object files is not
+> doing anything useful either way.
+
+### Tests
+
+The modules with no Arduino dependency - the millis() rollover arithmetic, the
+bounded string copy, the microphone DSP and the sunrise/sunset model - are
+covered by a Unity suite in `test/test_native/`.
+
+```
+pio pkg install -g -p native   # once; also needs g++ or clang on PATH
+pio test -e native
+
+pio test -e esp32_test         # or run the same suite on the board
+```
+
+## Japanese font (no card reader needed)
+
+1. Leave the FAT32 microSD card in the CYD.
 2. In PlatformIO Project Tasks, open `cyd2usb_font_installer` and click Upload.
-3. Wait until the CYD says `FONT READY`.
-4. Open `cyd2usb` in Project Tasks and click Upload.
+3. Wait until the CYD shows `FONT READY`.
+4. Open `cyd2usb` and click Upload.
 
-The installer is needed only once, or again after replacing/formatting the card.
+Only needed once, or again after replacing or reformatting the card.
+
+## Layout
+
+```
+SpotifyDiyThing/
+  SpotifyDiyThing.ino      setup() and loop() only
+  version.h                the single version string
+  deviceConfig.*           persisted settings, credentials + region
+  WifiManagerHandler.*     connect / captive setup portal
+  refreshToken.*           one-page Spotify authorisation helper
+  spotifyLogic.*           polling, playback commands, queue prefetch
+  touchScreen.*            touch sampling task, publishes one TouchAction
+  cheapYellowLCD.*         the player screen and the overlays
+    cydTheme.h               palette, layout, the single TFT instance
+    albumArtCache.*          cover download, SD/SPIFFS caching, prefetch
+    backlightController.*    manual levels, NVS, automatic sunset dim
+    visualizerRenderer.*     the sixteen modes and their frame buffer
+  audioVisualizer.*        I2S capture task
+  audioSpectrum.*          FFT and band mapping     (Arduino-free, tested)
+  solarTime.*              sunrise/sunset            (Arduino-free, tested)
+  timeMath.h               rollover-safe ticks       (Arduino-free, tested)
+  stringUtil.h             bounded copy              (Arduino-free, tested)
+```
+
+Everything that touches the TFT runs on the Arduino loop task. The background
+tasks - album download, playback commands, touch sampling, microphone capture -
+do network, SD and I2S work only.
+
+## Wiring
+
+INMP441 microphone, for the visualizers:
+
+| INMP441 | CYD |
+| --- | --- |
+| VDD | CN1 3V3 |
+| GND | CN1 / P3 GND |
+| SCK | GPIO22 |
+| WS | GPIO27 |
+| SD | GPIO35 (input-only) |
+| L/R | GND (left channel) |
+
+GPIO21 is deliberately unused: it drives the TFT backlight.
+
+Bluetooth and the Android companion are not part of this build. NFC is compiled
+out by default; re-enable `NFC_ENABLED` only with a PN532 attached.
 
 ---
 
