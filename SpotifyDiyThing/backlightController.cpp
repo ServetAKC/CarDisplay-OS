@@ -1,6 +1,6 @@
 #include "backlightController.h"
 
-#include <math.h>
+#include "solarTime.h"
 #include <time.h>
 
 #include "timing.h"
@@ -17,14 +17,6 @@ constexpr uint8_t NIGHT_CAP_PERCENT = 25;
 // this is treated as "clock not ready".
 constexpr time_t CLOCK_VALID_EPOCH = 1700000000;
 
-double normalizeDegrees(double value)
-{
-  value = fmod(value, 360.0);
-  return value < 0.0 ? value + 360.0 : value;
-}
-
-double degreesToRadians(double value) { return value * 0.017453292519943295; }
-double radiansToDegrees(double value) { return value * 57.29577951308232; }
 } // namespace
 
 void BacklightController::begin(uint8_t backlightPin, float lat, float lon)
@@ -118,66 +110,9 @@ bool BacklightController::isAfterSunset() const
 {
   const time_t now = time(nullptr);
   if (now < CLOCK_VALID_EPOCH)
-    return false; // NTP not ready yet
+    return false; // NTP has not synced yet
 
   struct tm utcNow;
   gmtime_r(&now, &utcNow);
-
-  const double currentUtcHour =
-      utcNow.tm_hour + (utcNow.tm_min / 60.0) + (utcNow.tm_sec / 3600.0);
-  const double sunriseUtc = solarEventUtcHour(utcNow, true);
-  const double sunsetUtc = solarEventUtcHour(utcNow, false);
-
-  return currentUtcHour >= sunsetUtc || currentUtcHour < sunriseUtc;
-}
-
-// NOAA-style sunrise/sunset approximation. Returns a UTC decimal hour.
-double BacklightController::solarEventUtcHour(const struct tm &utcDate, bool sunrise) const
-{
-  constexpr double zenith = 90.833; // standard refraction + solar radius
-  const int dayOfYear = utcDate.tm_yday + 1;
-  const double lngHour = longitude / 15.0;
-  const double approximateTime =
-      dayOfYear + (((sunrise ? 6.0 : 18.0) - lngHour) / 24.0);
-
-  const double meanAnomaly = (0.9856 * approximateTime) - 3.289;
-  double trueLongitude =
-      meanAnomaly +
-      (1.916 * sin(degreesToRadians(meanAnomaly))) +
-      (0.020 * sin(2.0 * degreesToRadians(meanAnomaly))) +
-      282.634;
-  trueLongitude = normalizeDegrees(trueLongitude);
-
-  double rightAscension = radiansToDegrees(
-      atan(0.91764 * tan(degreesToRadians(trueLongitude))));
-  rightAscension = normalizeDegrees(rightAscension);
-
-  const double longitudeQuadrant = floor(trueLongitude / 90.0) * 90.0;
-  const double rightAscensionQuadrant = floor(rightAscension / 90.0) * 90.0;
-  rightAscension += longitudeQuadrant - rightAscensionQuadrant;
-  rightAscension /= 15.0;
-
-  const double sinDeclination = 0.39782 * sin(degreesToRadians(trueLongitude));
-  const double cosDeclination = cos(asin(sinDeclination));
-
-  const double cosHourAngle =
-      (cos(degreesToRadians(zenith)) -
-       (sinDeclination * sin(degreesToRadians(latitude)))) /
-      (cosDeclination * cos(degreesToRadians(latitude)));
-
-  if (cosHourAngle > 1.0 || cosHourAngle < -1.0)
-    return sunrise ? 6.0 : 18.0; // polar day/night fallback
-
-  double localHourAngle = sunrise
-                              ? 360.0 - radiansToDegrees(acos(cosHourAngle))
-                              : radiansToDegrees(acos(cosHourAngle));
-  localHourAngle /= 15.0;
-
-  const double localMeanTime =
-      localHourAngle + rightAscension - (0.06571 * approximateTime) - 6.622;
-
-  double utcHour = fmod(localMeanTime - lngHour, 24.0);
-  if (utcHour < 0.0)
-    utcHour += 24.0;
-  return utcHour;
+  return isNight(utcNow, latitude, longitude);
 }

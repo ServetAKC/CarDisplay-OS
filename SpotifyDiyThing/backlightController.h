@@ -54,5 +54,4 @@ private:
   void apply(bool force);
   void saveManualLevel();
   bool isAfterSunset() const;
-  double solarEventUtcHour(const struct tm &utcDate, bool sunrise) const;
 };
