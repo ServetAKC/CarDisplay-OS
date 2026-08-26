@@ -60,3 +60,17 @@ Tests
 Repository
 - The project is now a git repository. v0.3.15 is tagged, so any of this is
   revertable and diffable rather than living in a folder copy.
+
+Security
+- SPOTIFY_DEBUG was enabled in the vendored SpotifyArduino. It printed the
+  full token request body - client secret and refresh token in plaintext - to
+  the serial console on every refresh. The library's own comment warns against
+  this. Now off by default; enable deliberately with -DSPOTIFY_DEBUG.
+  Anyone who ran a serial monitor on an earlier build should rotate the
+  Spotify client secret.
+
+Verified on hardware
+- 19/19 tests pass on the device (pio test -e esp32_test).
+- v0.3.16 boots, loads the existing config with Market=TR TZ=<+03>-3, brings
+  up the microphone, SD cache and Japanese font, refreshes all three Spotify
+  tokens and draws a cached cover in ~185 ms.

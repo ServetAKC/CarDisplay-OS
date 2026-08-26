@@ -26,7 +26,15 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
 // NOTE: Do not use this option on live-streams, it will reveal your
 // private tokens!
 
-#define SPOTIFY_DEBUG 1
+// Car Display OS: left OFF by default. When enabled this prints the full token
+// request body - client secret and refresh token in plaintext - to the serial
+// console on every refresh, which is roughly once an hour forever. Anyone with
+// a USB cable, or any screen recording of the monitor, walks away with the
+// account credentials.
+//
+// Turn it on deliberately and temporarily with -DSPOTIFY_DEBUG in
+// platformio.ini, then rotate the client secret afterwards.
+// #define SPOTIFY_DEBUG 1
 
 // Comment out if you want to disable any serial output from this library (also comment out DEBUG and PRINT_JSON_PARSE)
 #define SPOTIFY_SERIAL_OUTPUT 1
