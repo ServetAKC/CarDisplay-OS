@@ -43,6 +43,7 @@
 #include "spotifyDisplay.h"
 #include "spotifyLogic.h"
 #include "timing.h"
+#include "touchScreen.h"
 #include "version.h"
 #include "WifiManagerHandler.h"
 
@@ -73,9 +74,11 @@ constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 5000;
 constexpr unsigned long WIFI_RETRY_WINDOW_MS = 5000;
 
 // How long a normal boot keeps trying the saved network before it gives up and
-// opens the setup portal on its own. Two 5 s attempts, so the setup page and the
-// offline visualizer are reachable roughly 12 s after power-on instead of never.
-constexpr unsigned long OFFLINE_FALLBACK_MS = 12000;
+// opens the setup portal on its own. Measured from the moment waitForWiFi()
+// starts, so this is the real power-on-to-setup-screen time: three 5 s attempts
+// and then the portal, which also carries the OFFLINE VISUALIZER button. A
+// touch anywhere on the connecting screen cuts it short.
+constexpr unsigned long OFFLINE_FALLBACK_MS = 15000;
 
 unsigned long nextWiFiReconnectTime = 0;
 
@@ -100,17 +103,34 @@ void drawWifiManagerMessage(WiFiManager *myWiFiManager)
 // reboot and no second power cycle.
 void waitForWiFi(bool forceConfig)
 {
+  // The deadline is taken before the first attempt, not after it, so
+  // OFFLINE_FALLBACK_MS is the real time from power-on to the setup screen. The
+  // obvious version - start counting after the initial 5 s attempt and check
+  // the deadline at the top of each 5 s round - overshoots by a whole round and
+  // takes about twenty seconds. In a car that is the difference between waiting
+  // and deciding the thing is broken.
+  const unsigned long portalDeadline = deadlineIn(OFFLINE_FALLBACK_MS);
+
+  // Any touch during the wait means stop waiting. The touch task is already
+  // running - displaySetup() starts it before this is ever called - so the tap
+  // costs nothing to support and removes the whole wait for anyone who already
+  // knows the hotspot is off.
+  setTouchConnectingMode(true);
+  bool skipRequested = false;
+
   bool connected = setupWiFiManager(forceConfig, deviceConfig,
                                     &drawWifiManagerMessage, spotifyDisplay);
   if (connected)
+  {
+    setTouchConnectingMode(false);
     return;
+  }
 
   // Only a normal boot gets the quiet retry window; a forced config request
   // means the user asked for the portal and should not have to wait for it.
   if (!forceConfig)
   {
-    const unsigned long portalDeadline = deadlineIn(OFFLINE_FALLBACK_MS);
-    while (!timeReached(portalDeadline))
+    while (!skipRequested && !timeReached(portalDeadline))
     {
       servicePowerCycleDetector();
 
@@ -120,19 +140,31 @@ void waitForWiFi(bool forceConfig)
       while (WiFi.status() != WL_CONNECTED && !timeReached(retryDeadline))
       {
         servicePowerCycleDetector();
+        if (takeTouchAction() != TouchAction::None)
+        {
+          skipRequested = true;
+          break;
+        }
         delay(20);
       }
 
       if (WiFi.status() == WL_CONNECTED)
+      {
+        setTouchConnectingMode(false);
         return;
+      }
     }
-    Serial.println(F("No saved network after the retry window; opening setup"));
+    Serial.println(skipRequested
+                       ? F("Wait skipped by touch; opening setup")
+                       : F("No saved network after the retry window; opening setup"));
   }
 
-  // From here the portal is the destination. setupWiFiManager() only returns
-  // once something connected, but guard the loop anyway so a portal that is
-  // dismissed without credentials reopens instead of falling through to Spotify
-  // setup with no network.
+  // From here the portal is the destination, and it owns the touch map.
+  setTouchConnectingMode(false);
+
+  // setupWiFiManager() only returns once something connected, but guard the
+  // loop anyway so a portal that is dismissed without credentials reopens
+  // instead of falling through to Spotify setup with no network.
   while (!connected)
   {
     connected = setupWiFiManager(true, deviceConfig,
@@ -141,7 +173,6 @@ void waitForWiFi(bool forceConfig)
       Serial.println(F("Wi-Fi setup ended without a connection; reopening"));
   }
 }
-
 
 // GPIO 0 (the CYD boot button) forces a fresh Spotify authorisation.
 bool refreshTokenForced()

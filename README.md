@@ -25,10 +25,11 @@ The version number lives in exactly one place: `SpotifyDiyThing/version.h`.
   `cydTheme.h`. Depth and energy are shown by moving along the hue axis, never
   by darkening, so nothing on screen is ever a muddy dark green.
 - **Offline mode** - a boot with no reachable network opens the setup screen by
-  itself after about 12 seconds, and that screen carries the
-  `OFFLINE VISUALIZER` button. No double power cycle is needed for either. The
-  saved network keeps being re-tried behind the portal, so a phone hotspot that
-  appears late is picked up without a reboot.
+  itself after 15 seconds, and that screen carries the `OFFLINE VISUALIZER`
+  button. Touching the connecting screen skips the wait entirely. No double
+  power cycle is needed for any of it. The saved network keeps being re-tried
+  behind the open portal, so a phone hotspot that appears late is picked up
+  without a reboot.
 - **Brightness** - tap the Spotify badge to cycle 100/75/50/25/10/5%, stored in
   NVS. At sunset the backlight dims once to 25%; the first manual press
   releases that cap for the rest of the night.

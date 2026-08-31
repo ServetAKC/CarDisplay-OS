@@ -54,11 +54,20 @@ volatile unsigned long blockedUntil = 0;
 volatile bool clockModeActive = false;
 volatile bool visualizerModeActive = false;
 volatile bool setupPortalModeActive = false;
+volatile bool connectingModeActive = false;
 
 TaskHandle_t touchReaderTaskHandle = nullptr;
 
 TouchAction classify(int16_t x, int16_t y)
 {
+  if (connectingModeActive)
+  {
+    // Any coordinate at all. There is nothing else on this screen to hit.
+    (void)x;
+    (void)y;
+    return TouchAction::SkipWiFiWait;
+  }
+
   if (setupPortalModeActive)
   {
     return OFFLINE_VISUALIZER_ZONE.contains(x, y) ? TouchAction::OpenOfflineVisualizer
@@ -142,7 +151,8 @@ void touchReaderTask(void *)
           const TouchAction action = classify(p.x, p.y);
           // Latch even on a dead zone, so one press cannot produce two actions
           // by sliding from an inert area onto a live one.
-          if (setupPortalModeActive || clockModeActive || visualizerModeActive ||
+          if (connectingModeActive || setupPortalModeActive || clockModeActive ||
+              visualizerModeActive ||
               action != TouchAction::None)
           {
             pendingAction = action;
@@ -189,3 +199,4 @@ TouchAction takeTouchAction()
 void setTouchClockMode(bool active) { clockModeActive = active; }
 void setTouchVisualizerMode(bool active) { visualizerModeActive = active; }
 void setTouchSetupPortalMode(bool active) { setupPortalModeActive = active; }
+void setTouchConnectingMode(bool active) { connectingModeActive = active; }

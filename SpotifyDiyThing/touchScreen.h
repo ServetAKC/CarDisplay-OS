@@ -22,6 +22,7 @@ enum class TouchAction : int8_t
   CycleBrightness,
   NextVisualizerStyle,
   PreviousVisualizerStyle,
+  SkipWiFiWait,
   OpenOfflineVisualizer
 };
 
@@ -34,3 +35,9 @@ TouchAction takeTouchAction();
 void setTouchClockMode(bool active);
 void setTouchVisualizerMode(bool active);
 void setTouchSetupPortalMode(bool active);
+
+// While the unit is still trying the saved network at boot, any touch anywhere
+// means "stop waiting and show me the setup screen". It needs its own map
+// because the player map leaves the middle of the screen inert, and the middle
+// is exactly where someone jabs at a screen that is not doing anything.
+void setTouchConnectingMode(bool active);
