@@ -1112,10 +1112,24 @@ void CheapYellowDisplay::finishConfigPortal()
 
 namespace
 {
-constexpr int CONNECT_DOT_Y = 96;
-constexpr int CONNECT_DOT_RADIUS = 6;
-constexpr int CONNECT_BARS_BASE = 156;
-constexpr int CONNECT_SSID_Y = 172;
+// The sweep track: one hairline with one short segment sliding along it. That
+// is the whole animation.
+//
+// It replaced four cycling dots stacked over four climbing signal bars, which
+// were two competing timers doing the same job loudly. One slow element reads
+// as "working" just as well and lets the screen be mostly empty, which is what
+// makes the countdown bar and the touch hint the things you actually notice.
+constexpr int CONNECT_TRACK_X = 60;
+constexpr int CONNECT_TRACK_W = 200;
+constexpr int CONNECT_TRACK_Y = 118;
+constexpr int CONNECT_SEGMENT_W = 28;
+
+// Pixels per frame. At the 160 ms frame interval this is a shade under eight
+// seconds for a full there-and-back, which is deliberately slower than anything
+// else on screen.
+constexpr int CONNECT_SWEEP_STEP = 7;
+
+constexpr int CONNECT_SSID_Y = 148;
 constexpr int CONNECT_BAR_X = 24;
 constexpr int CONNECT_BAR_Y = 200;
 constexpr int CONNECT_BAR_W = 272;
@@ -1152,26 +1166,16 @@ void CheapYellowDisplay::drawWiFiConnectingBase()
 
 void CheapYellowDisplay::drawWiFiAnimationFrame(uint8_t frame)
 {
-  static const int dotX[4] = {124, 148, 172, 196};
-  const uint8_t active = frame % 4;
+  // Ping-pong rather than wrap: a segment that reappears at the left edge reads
+  // as a stutter, and the point of this screen is to look calm.
+  constexpr int TRAVEL = CONNECT_TRACK_W - CONNECT_SEGMENT_W;
+  int position = (frame * CONNECT_SWEEP_STEP) % (TRAVEL * 2);
+  if (position > TRAVEL)
+    position = TRAVEL * 2 - position;
 
-  tft.fillRect(108, CONNECT_DOT_Y - 14, 104, 28, TFT_BLACK);
-  for (uint8_t i = 0; i < 4; ++i)
-  {
-    const uint16_t color = (i == active) ? theme::PRESS : theme::DARK;
-    const int radius = (i == active) ? CONNECT_DOT_RADIUS : 4;
-    tft.fillCircle(dotX[i], CONNECT_DOT_Y, radius, color);
-  }
-
-  // Signal bars. They climb with the same index as the dots, so the two read as
-  // one gesture rather than two unrelated timers.
-  tft.fillRect(132, CONNECT_BARS_BASE - 30, 56, 30, TFT_BLACK);
-  for (uint8_t i = 0; i < 4; ++i)
-  {
-    const int height = 5 + (i * 6);
-    tft.fillRect(134 + (i * 13), CONNECT_BARS_BASE - height, 8, height,
-                 i <= active ? theme::GREEN : theme::DARK);
-  }
+  tft.fillRect(CONNECT_TRACK_X, CONNECT_TRACK_Y, CONNECT_TRACK_W, 1, theme::DARK);
+  tft.fillRect(CONNECT_TRACK_X + position, CONNECT_TRACK_Y, CONNECT_SEGMENT_W, 1,
+               theme::GREEN);
 
   // Which network, once WiFi.begin() has been called and there is one to name.
   // Blank for the first frames, which is honest: nothing is being joined yet.
@@ -1199,6 +1203,7 @@ void CheapYellowDisplay::drawWiFiAnimationFrame(uint8_t frame)
   if (remaining > 0)
     tft.fillRect(CONNECT_BAR_X, CONNECT_BAR_Y, remaining, CONNECT_BAR_H, theme::GREEN);
 }
+
 
 void CheapYellowDisplay::wifiAnimationTaskTrampoline(void *parameter)
 {
