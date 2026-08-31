@@ -105,24 +105,62 @@ bool setupWiFiManager(bool forceConfig, DeviceConfig &config,
     // Keep DNS/web setup, touch input and the microphone visualizer alive in
     // one cooperative loop. Saving valid Wi-Fi credentials exits this loop - and
     // so does the saved network turning up on its own.
+    //
+    // The portal is also torn down entirely while the offline visualizer is
+    // open. "Offline" was never true before: the AP kept broadcasting, the DNS
+    // responder kept answering and wm.process() kept running, all of it on core
+    // 0 next to the microphone task. Honouring wantsRadioSilence() is what makes
+    // the mode mean what its name says.
+    bool portalRunning = true;
     unsigned long nextSavedRetry = deadlineIn(PORTAL_SAVED_RETRY_MS);
     while (WiFi.status() != WL_CONNECTED)
     {
-      const bool connected = wm.process();
+      const bool wantsSilence = display != nullptr && display->wantsRadioSilence();
+
+      if (wantsSilence && portalRunning)
+      {
+        Serial.println(F("Offline visualizer open; shutting the radio down"));
+        wm.stopConfigPortal();
+        WiFi.softAPdisconnect(true);
+        WiFi.disconnect(true, false); // keep the stored credentials
+        WiFi.mode(WIFI_OFF);
+        portalRunning = false;
+      }
+      else if (!wantsSilence && !portalRunning)
+      {
+        Serial.println(F("Offline visualizer closed; radio back on"));
+        WiFi.mode(WIFI_AP_STA);
+        wm.setConfigPortalBlocking(false);
+        wm.startConfigPortal(WM_AP_SSID, WM_AP_PASSWORD);
+        portalRunning = true;
+        nextSavedRetry = deadlineIn(PORTAL_SAVED_RETRY_MS);
+      }
+
+      if (portalRunning)
+      {
+        const bool connected = wm.process();
+        if (connected || WiFi.status() == WL_CONNECTED)
+          break;
+
+        if (hasSavedNetwork && timeReached(nextSavedRetry))
+        {
+          nextSavedRetry = deadlineIn(PORTAL_SAVED_RETRY_MS);
+          Serial.println(F("Portal open; re-trying the saved network"));
+          WiFi.begin();
+        }
+      }
+
       if (display != nullptr)
         display->serviceConfigPortal();
       servicePowerCycleDetector();
-      if (connected || WiFi.status() == WL_CONNECTED)
-        break;
-
-      if (hasSavedNetwork && timeReached(nextSavedRetry))
-      {
-        nextSavedRetry = deadlineIn(PORTAL_SAVED_RETRY_MS);
-        Serial.println(F("Portal open; re-trying the saved network"));
-        WiFi.begin();
-      }
       delay(1);
     }
+
+    // Bringing the radio back is the caller's problem only if it never came
+    // back on its own; stopConfigPortal() is safe to call when nothing is
+    // running.
+    if (!portalRunning)
+      WiFi.mode(WIFI_AP_STA);
     wm.stopConfigPortal();
     if (display != nullptr)
       display->finishConfigPortal();

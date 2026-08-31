@@ -934,29 +934,123 @@ void CheapYellowDisplay::drawWifiManagerMessage(WiFiManager *myWiFiManager)
   drawWifiSetupScreen();
 }
 
+// ---------------------------------------------------------------------------
+// The setup / offline screen.
+//
+// This is the screen a driver sees when the hotspot is not up, so in practice
+// it is the second most looked-at screen in the product. v0.3 drew it as a
+// plain bordered list of four labels; v0.4 gives it a header, one panel that
+// groups the three things you have to type somewhere else, and a button that
+// looks like a button. The status chip top right animates, because the unit
+// really is still retrying the saved network behind this screen and a static
+// screen made it look like it had given up.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+// The button, kept here so the drawing and the touch map cannot drift. The
+// hotspot in touchScreen.cpp covers the same rectangle.
+constexpr int OFFLINE_BUTTON_X = 32;
+constexpr int OFFLINE_BUTTON_Y = 176;
+constexpr int OFFLINE_BUTTON_W = 256;
+constexpr int OFFLINE_BUTTON_H = 56;
+
+constexpr int SETUP_PANEL_X = 10;
+constexpr int SETUP_PANEL_Y = 46;
+constexpr int SETUP_PANEL_W = 300;
+constexpr int SETUP_PANEL_H = 116;
+
+constexpr int STATUS_X = 196;
+constexpr int STATUS_Y = 10;
+constexpr int STATUS_W = 116;
+constexpr int STATUS_H = 20;
+
+constexpr unsigned long SETUP_STATUS_FRAME_MS = 420;
+} // namespace
+
+// One "LABEL   value" line inside the panel. The label is small and teal, the
+// value is large and bright: the value is the part that gets typed into a
+// phone, so it is the part that has to be readable at arm's length.
+void CheapYellowDisplay::drawSetupRow(const char *label, const char *value,
+                                      int y, int valueFont)
+{
+  tft.setTextColor(theme::DIM, TFT_BLACK);
+  tft.drawString(label, SETUP_PANEL_X + 14, y, 1);
+  tft.setTextColor(theme::VIZ_BRIGHT, TFT_BLACK);
+  tft.drawString(value, SETUP_PANEL_X + 14, y + 11, valueFont);
+}
+
+// The animated "still looking" chip. Redrawn on its own so the rest of the
+// screen is not repainted four times a second.
+void CheapYellowDisplay::drawSetupStatus(bool force)
+{
+  if (!force && !elapsed(lastSetupStatusTime, SETUP_STATUS_FRAME_MS))
+    return;
+  lastSetupStatusTime = millis();
+
+  char text[16];
+  const uint8_t dots = setupStatusFrame % 4;
+  snprintf(text, sizeof(text), "SEARCHING%.*s", dots, "...");
+  setupStatusFrame++;
+
+  tft.fillRect(STATUS_X, STATUS_Y, STATUS_W, STATUS_H, TFT_BLACK);
+  tft.drawRoundRect(STATUS_X, STATUS_Y, STATUS_W, STATUS_H, 4, theme::VIZ_DEEP);
+  tft.setTextColor(theme::VIZ_GLOW, TFT_BLACK);
+  tft.drawString(text, STATUS_X + 8, STATUS_Y + 6, 1);
+
+  // A small bar that fills as the retry window runs down would need the
+  // deadline from WifiManagerHandler; the dots carry the same message without
+  // reaching across that boundary for it.
+}
+
+void CheapYellowDisplay::serviceWifiSetupScreen()
+{
+  if (!wifiSetupMode || visualizer.isOpen() || clockMode)
+    return;
+  drawSetupStatus(false);
+}
+
 void CheapYellowDisplay::drawWifiSetupScreen()
 {
   tft.fillScreen(TFT_BLACK);
-  tft.drawRect(3, 3, 314, 234, theme::GREEN);
-  tft.setTextColor(theme::GREEN, TFT_BLACK);
-  tft.drawCentreString("WI-FI SETUP", layout::CENTRE_X, 8, 4);
-  tft.setTextColor(theme::DIM, TFT_BLACK);
-  tft.drawCentreString("Connect phone or use offline mode", layout::CENTRE_X, 39, 2);
-  tft.setTextColor(theme::GREEN, TFT_BLACK);
-  tft.drawString("Network:", 18, 68, 2);
-  tft.drawString(wifiSetupSsid, 104, 68, 2);
-  tft.drawString("Password:", 18, 91, 2);
-  tft.drawString("thing123", 104, 91, 2);
-  tft.setTextColor(theme::DIM, TFT_BLACK);
-  tft.drawString("Setup address:", 18, 120, 2);
-  tft.setTextColor(theme::GREEN, TFT_BLACK);
-  tft.drawCentreString(wifiSetupIp, layout::CENTRE_X, 139, 4);
-  tft.drawRect(32, 176, 256, 56, theme::VIZ_GLOW);
-  tft.drawRect(34, 178, 252, 52, theme::VIZ_MID);
+
+  // Header: a title and the accent rule under it, rather than a box drawn
+  // around the whole screen. The old full-screen border ate eight pixels on
+  // every edge and framed nothing in particular.
   tft.setTextColor(theme::VIZ_BRIGHT, TFT_BLACK);
-  tft.drawCentreString("OFFLINE VISUALIZER", layout::CENTRE_X, 186, 2);
+  tft.drawString("WI-FI SETUP", 12, 8, 4);
+  tft.drawFastHLine(0, 38, layout::SCREEN_WIDTH, theme::VIZ_MID);
+  tft.drawFastHLine(0, 39, layout::SCREEN_WIDTH, theme::VIZ_DEEP);
+  setupStatusFrame = 0;
+  drawSetupStatus(true);
+
+  // One panel for everything that has to be typed into a phone.
+  tft.drawRoundRect(SETUP_PANEL_X, SETUP_PANEL_Y, SETUP_PANEL_W, SETUP_PANEL_H,
+                    6, theme::VIZ_DEEP);
+
+  drawSetupRow("NETWORK", wifiSetupSsid, SETUP_PANEL_Y + 10, 4);
+  drawSetupRow("PASSWORD", "thing123", SETUP_PANEL_Y + 46, 2);
+  drawSetupRow("THEN OPEN", wifiSetupIp, SETUP_PANEL_Y + 78, 2);
+
+  // The button. Double stroke and a filled cap on the left so it reads as a
+  // control rather than as another panel; the CYD has no hover or press state
+  // to lean on, so the affordance has to be in the drawing.
+  tft.drawRoundRect(OFFLINE_BUTTON_X, OFFLINE_BUTTON_Y, OFFLINE_BUTTON_W,
+                    OFFLINE_BUTTON_H, 8, theme::VIZ_MID);
+  tft.drawRoundRect(OFFLINE_BUTTON_X + 1, OFFLINE_BUTTON_Y + 1,
+                    OFFLINE_BUTTON_W - 2, OFFLINE_BUTTON_H - 2, 7, theme::VIZ_DEEP);
+  tft.fillRect(OFFLINE_BUTTON_X + 2, OFFLINE_BUTTON_Y + 8, 4,
+               OFFLINE_BUTTON_H - 16, theme::VIZ_BRIGHT);
+
+  // "OFFLINE VISUALIZER" in font 4 measures about 250 px against 252 px of
+  // usable button width, which is a clip waiting to happen on a longer string.
+  // The short label carries the meaning and leaves the detail to the subtitle.
+  tft.setTextColor(theme::VIZ_PEAK, TFT_BLACK);
+  tft.drawCentreString("OFFLINE MODE", layout::CENTRE_X,
+                       OFFLINE_BUTTON_Y + 9, 4);
   tft.setTextColor(theme::DIM, TFT_BLACK);
-  tft.drawCentreString("MIC MODE - NO INTERNET", layout::CENTRE_X, 207, 1);
+  tft.drawCentreString("40 VISUALIZERS - RADIO OFF", layout::CENTRE_X,
+                       OFFLINE_BUTTON_Y + 39, 1);
 }
 
 void CheapYellowDisplay::drawRefreshTokenMessage()
@@ -986,6 +1080,7 @@ void CheapYellowDisplay::serviceConfigPortal()
 {
   checkForInput();
   service();
+  serviceWifiSetupScreen();
 }
 
 void CheapYellowDisplay::finishConfigPortal()

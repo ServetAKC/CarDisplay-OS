@@ -55,6 +55,9 @@ public:
   void serviceConfigPortal() override;
   void finishConfigPortal() override;
 
+  // The offline visualizer is the one screen that genuinely wants no radio.
+  bool wantsRadioSilence() const override { return wifiSetupMode && visualizer.isOpen(); }
+
 private:
   // Playback actions, kept as a small enum so the command queue and the icon
   // highlighting cannot disagree about what a value means.
@@ -110,6 +113,8 @@ private:
   bool wifiSetupMode = false;
   char wifiSetupSsid[34] = "SpotifyDIY";
   char wifiSetupIp[20] = "192.168.4.1";
+  unsigned long lastSetupStatusTime = 0;
+  uint8_t setupStatusFrame = 0;
 
   // Brightness toast.
   unsigned long brightnessToastUntil = 0;
@@ -146,6 +151,9 @@ private:
   void drawCachedTrackInfo();
   void drawEllipsized(const char *text, int x, int y, int maxWidth, int font, uint16_t color);
   void drawWifiSetupScreen();
+  void drawSetupRow(const char *label, const char *value, int y, int valueFont);
+  void drawSetupStatus(bool force);
+  void serviceWifiSetupScreen();
   bool drawAlbumArt();
 
   // Playback controls.

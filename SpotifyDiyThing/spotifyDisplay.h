@@ -37,6 +37,14 @@ class SpotifyDisplay {
     virtual void serviceConfigPortal() {}
     virtual void finishConfigPortal() {}
 
+    // True while the display wants the radio genuinely off rather than merely
+    // idle. The CYD returns this for the offline visualizer, where the AP, the
+    // DNS responder and the web server are all pure overhead - and where they
+    // cost frames, because the Wi-Fi stack shares core 0 with the microphone
+    // task. The portal loop honours it by shutting the radio down and bringing
+    // it back when the overlay closes.
+    virtual bool wantsRadioSilence() const { return false; }
+
     //Image Related
     virtual void clearImage()= 0;
     virtual boolean processImageInfo (CurrentlyPlaying currentlyPlaying)=0;

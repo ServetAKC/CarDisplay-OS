@@ -43,7 +43,9 @@ constexpr Hotspot VISUALIZER_ZONE = {270, 319, 0, 44};
 // Full-screen overlay close button (top-right).
 constexpr Hotspot OVERLAY_CLOSE_ZONE = {276, 319, 0, 46};
 
-// Large button shown only on the Wi-Fi setup screen.
+// Large button shown only on the Wi-Fi setup screen. Must match
+// OFFLINE_BUTTON_* in cheapYellowLCD.cpp; they are the same rectangle drawn
+// once and tested once.
 constexpr Hotspot OFFLINE_VISUALIZER_ZONE = {32, 288, 176, 232};
 
 CYD28_TouchR ts(DISPLAY_HOR_RES_MAX, DISPLAY_VER_RES_MAX);

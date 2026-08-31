@@ -30,6 +30,10 @@ The version number lives in exactly one place: `SpotifyDiyThing/version.h`.
   power cycle is needed for any of it. The saved network keeps being re-tried
   behind the open portal, so a phone hotspot that appears late is picked up
   without a reboot.
+- **Radio off means radio off** - opening the offline visualizer tears the AP,
+  the DNS responder and the web server down and calls `WiFi.mode(WIFI_OFF)`.
+  Closing it brings all three back. Nothing is transmitting while the mode is
+  open, and the Wi-Fi stack stops competing with the microphone task for core 0.
 - **Brightness** - tap the Spotify badge to cycle 100/75/50/25/10/5%, stored in
   NVS. At sunset the backlight dims once to 25%; the first manual press
   releases that cap for the rest of the night.
