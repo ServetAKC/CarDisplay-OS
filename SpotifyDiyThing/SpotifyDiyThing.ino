@@ -32,6 +32,7 @@
 // #define NFC_ENABLED 1
 
 #include <FS.h>
+#include <time.h>
 #include <SPIFFS.h>
 #include <SpotifyArduino.h>
 #include <WiFi.h>
@@ -83,6 +84,13 @@ constexpr unsigned long WIFI_RETRY_WINDOW_MS = 5000;
 // and then the portal, which also carries the OFFLINE VISUALIZER button. A
 // touch anywhere on the connecting screen cuts it short.
 constexpr unsigned long OFFLINE_FALLBACK_MS = 15000;
+
+// How long to wait for NTP before giving up and booting anyway.
+constexpr unsigned long CLOCK_SYNC_TIMEOUT_MS = 8000;
+
+// Any epoch below this means the clock has not been set. 2023-11-14; the exact
+// date does not matter, only that it is far past the 1970 the RTC starts at.
+constexpr time_t SANE_EPOCH = 1700000000;
 
 unsigned long nextWiFiReconnectTime = 0;
 
@@ -178,6 +186,37 @@ void waitForWiFi(bool forceConfig)
   }
 }
 
+// TLS certificate validation checks the certificate's notBefore and notAfter
+// against the clock, so every Spotify connection made before NTP has synced
+// fails with -9984 "certificate verification failed" no matter how good the
+// certificate is.
+//
+// Until v0.4.1 the only configTzTime() call was in serviceClock(), which first
+// runs from loop() - after setup() has already made three token refresh
+// attempts and failed all of them. On hardware that was three failures and a
+// "Now-playing error: -2" before the unit settled. The album art client uses
+// setInsecure() and so was unaffected, which is what made the cause visible:
+// covers loaded while every API call failed.
+//
+// Waiting is bounded. A hotspot with no data behind it will never sync, and
+// that must not stop the unit from booting into a usable player screen.
+void waitForClock()
+{
+  configTzTime(deviceConfig.timezone, "pool.ntp.org", "time.nist.gov");
+
+  const unsigned long deadline = deadlineIn(CLOCK_SYNC_TIMEOUT_MS);
+  while (time(nullptr) < SANE_EPOCH && !timeReached(deadline))
+  {
+    servicePowerCycleDetector();
+    delay(100);
+  }
+
+  if (time(nullptr) < SANE_EPOCH)
+    Serial.println(F("NTP did not sync; Spotify TLS will fail until it does"));
+  else
+    Serial.println(F("Clock synced"));
+}
+
 // GPIO 0 (the CYD boot button) forces a fresh Spotify authorisation.
 bool refreshTokenForced()
 {
@@ -237,6 +276,9 @@ void setup()
   clearPowerCycleMarker();
   Serial.print(F("IP address: "));
   Serial.println(WiFi.localIP());
+
+  // Before anything opens a verifying TLS connection.
+  waitForClock();
 
 #ifdef NFC_ENABLED
   Serial.println(nfcSetup(&spotify, spotifyDisplay) ? F("NFC good") : F("NFC bad"));

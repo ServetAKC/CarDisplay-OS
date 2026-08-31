@@ -93,6 +93,9 @@ private:
   // erase cycles through the flash for what is really one decision.
   static constexpr unsigned long STYLE_SAVE_DELAY_MS = 4000;
 
+  // How long to wait before trying the frame buffer again after a failure.
+  static constexpr unsigned long SPRITE_RETRY_MS = 2000;
+
   using DrawFn = void (VisualizerRenderer::*)(const Frame &, bool);
 
   struct ModeDef
@@ -132,6 +135,8 @@ private:
 
   TFT_eSprite sprite = TFT_eSprite(&tft);
   bool spriteReady = false;
+  bool spriteFailed = false;
+  unsigned long nextSpriteAttempt = 0;
 
   unsigned long lastDrawTime = 0;
   uint32_t lastFrameCounter = 0;

@@ -260,6 +260,15 @@ bool VisualizerRenderer::ensureSprite()
   if (spriteReady)
     return true;
 
+  // Retrying a 64 KB allocation on every frame achieves nothing except a log
+  // line every 42 ms, which is what v0.4.0 shipped doing. Back off instead: the
+  // memory this needs is normally freed by something else finishing - the setup
+  // portal closing, the radio going off, a Spotify TLS session handed back - so
+  // a slow poll picks it up without the spam and without the wasted mallocs.
+  if (spriteFailed && !timeReached(nextSpriteAttempt))
+    return false;
+  nextSpriteAttempt = deadlineIn(SPRITE_RETRY_MS);
+
   // 320 x 200 at 8 bpp is 64 KB, which is a large slice of the ESP32 heap once
   // three TLS sessions are up. The queue-prefetch client is idle for as long as
   // the overlay is open, so hand its session back first; that is often the
@@ -269,9 +278,24 @@ bool VisualizerRenderer::ensureSprite()
   sprite.setColorDepth(8);
   if (sprite.createSprite(layout::SCREEN_WIDTH, layout::OVERLAY_HEIGHT) == nullptr)
   {
-    Serial.println(F("Visualizer frame buffer allocation failed; using direct draw"));
+    if (!spriteFailed)
+    {
+      spriteFailed = true;
+      // The largest free block matters here, not the total: the heap can hold
+      // 100 KB and still refuse 64 KB contiguous. Printing both is the
+      // difference between diagnosing fragmentation and guessing at it.
+      Serial.printf("Visualizer frame buffer allocation failed; using direct draw "
+                    "(free %u, largest block %u, needed %u)\n",
+                    static_cast<unsigned>(ESP.getFreeHeap()),
+                    static_cast<unsigned>(ESP.getMaxAllocHeap()),
+                    static_cast<unsigned>(layout::SCREEN_WIDTH * layout::OVERLAY_HEIGHT));
+    }
     return false;
   }
+
+  if (spriteFailed)
+    Serial.println(F("Visualizer frame buffer allocated; buffered frames resumed"));
+  spriteFailed = false;
 
   // Draw functions keep normal screen coordinates; content starts at y = 40.
   sprite.setOrigin(0, -layout::OVERLAY_TOP);
@@ -282,9 +306,15 @@ bool VisualizerRenderer::ensureSprite()
 
 void VisualizerRenderer::releaseSprite()
 {
+  // Cleared even when no sprite was held, so reopening the overlay always gets
+  // one immediate attempt rather than waiting out a stale backoff.
+  spriteFailed = false;
+  nextSpriteAttempt = 0;
+
   if (!spriteReady)
     return;
   sprite.deleteSprite();
+  spriteReady = false;
   spriteReady = false;
 }
 
