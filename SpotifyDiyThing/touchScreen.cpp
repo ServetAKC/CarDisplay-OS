@@ -43,6 +43,15 @@ constexpr Hotspot VISUALIZER_ZONE = {270, 319, 0, 44};
 // Full-screen overlay close button (top-right).
 constexpr Hotspot OVERLAY_CLOSE_ZONE = {276, 319, 0, 46};
 
+// Brightness sun in the visualizer chrome row, left of the close button. The
+// player screen cycles brightness from the Spotify badge; the overlay covers
+// that badge, so it needs its own.
+constexpr Hotspot VISUALIZER_BRIGHTNESS_ZONE = {224, 274, 0, 44};
+
+// Play/stop button in the middle of the PIONEER overlay. Only live when
+// setTouchAnimationMode(true) says that mode is on screen.
+constexpr Hotspot ANIMATION_PLAY_ZONE = {110, 210, 138, 202};
+
 // Large button shown only on the Wi-Fi setup screen. Must match
 // OFFLINE_BUTTON_* in cheapYellowLCD.cpp; they are the same rectangle drawn
 // once and tested once.
@@ -57,6 +66,7 @@ volatile bool clockModeActive = false;
 volatile bool visualizerModeActive = false;
 volatile bool setupPortalModeActive = false;
 volatile bool connectingModeActive = false;
+volatile bool animationModeActive = false;
 
 TaskHandle_t touchReaderTaskHandle = nullptr;
 
@@ -93,6 +103,11 @@ TouchAction classify(int16_t x, int16_t y)
     // taps to come back to it.
     if (OVERLAY_CLOSE_ZONE.contains(x, y))
       return TouchAction::ToggleVisualizer;
+    if (VISUALIZER_BRIGHTNESS_ZONE.contains(x, y))
+      return TouchAction::CycleBrightness;
+    // Before the split, or it would read as "next mode".
+    if (animationModeActive && ANIMATION_PLAY_ZONE.contains(x, y))
+      return TouchAction::ToggleAnimationPlayback;
     return x >= layout::CENTRE_X ? TouchAction::NextVisualizerStyle
                                  : TouchAction::PreviousVisualizerStyle;
   }
@@ -202,3 +217,4 @@ void setTouchClockMode(bool active) { clockModeActive = active; }
 void setTouchVisualizerMode(bool active) { visualizerModeActive = active; }
 void setTouchSetupPortalMode(bool active) { setupPortalModeActive = active; }
 void setTouchConnectingMode(bool active) { connectingModeActive = active; }
+void setTouchAnimationMode(bool active) { animationModeActive = active; }

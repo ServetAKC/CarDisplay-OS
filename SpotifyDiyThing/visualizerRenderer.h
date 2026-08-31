@@ -4,6 +4,7 @@
 #include <Preferences.h>
 #include <TFT_eSPI.h>
 
+#include "animationPlayer.h"
 #include "audioVisualizer.h"
 #include "cydTheme.h"
 
@@ -54,6 +55,20 @@ public:
   void previousStyle();
   const char *styleName() const;
 
+  // True while the frame-playback mode is the one on screen, so the display can
+  // arm the play/stop hotspot only when there is something to play.
+  bool isAnimationMode() const;
+
+  // Starts or stops frame playback. Playback switches the microphone off: the
+  // I2S task and the FFT share core 0 with the SD reads, and the animation does
+  // not need either of them.
+  void toggleAnimationPlayback();
+
+  // The overlay covers the player screen, so brightness is cycled from a sun in
+  // the chrome row. The value is pushed in rather than read, because the
+  // backlight belongs to the display, not to the renderer.
+  void setBrightnessPercent(uint8_t percent);
+
   // Called from the Arduino loop; rate-limits itself to the target frame rate.
   void service();
 
@@ -62,7 +77,7 @@ public:
 
 private:
   static constexpr size_t PULSE_RING_BAR_COUNT = AudioVisualizer::BAR_COUNT * 2;
-  static constexpr size_t MODE_COUNT = 40;
+  static constexpr size_t MODE_COUNT = 41;
 
   // Particle counts for the modes that carry their own state.
   static constexpr size_t STAR_COUNT = 30;
@@ -96,6 +111,14 @@ private:
   static const ModeDef MODES[];
 
   AudioVisualizer audioVisualizer;
+
+  // Frame playback from SD. Scanned once at begin(); the 8 KB frame buffer is
+  // only held while the PIONEER mode is the one on screen.
+  AnimationPlayer animation;
+  bool animationOpen = false;
+  bool animationPlaying = false;
+  uint8_t brightnessPercent = 100;
+
   bool micOk = false;
   bool openFlag = false;
 
@@ -172,6 +195,8 @@ private:
   void resetDrawingState();
   void drawFrame(bool force);
   void drawChrome();
+  void drawBrightnessSun();
+  void drawAnimationPlayButton(TFT_eSPI &target);
   void drawMicError();
 
   uint16_t waterfallColor(uint8_t level) const;
@@ -219,6 +244,7 @@ private:
   void drawParticleJet(const Frame &frame, bool force);
   void drawWaveGrid(const Frame &frame, bool force);
   void drawChromaRings(const Frame &frame, bool force);
+  void drawPioneer(const Frame &frame, bool force);
 };
 
 // Shared by both full-screen overlays (clock and visualizer).

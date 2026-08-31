@@ -1,6 +1,6 @@
 # Car Display OS v0.4.0
 
-Spotify album art, a full-screen clock and forty microphone visualizers on a
+Spotify album art, a full-screen clock and forty-one visualizers on a
 2-USB Cheap Yellow Display (ESP32-2432S028R). Online it follows Spotify; offline
 it runs the INMP441 visualizers, so the unit is useful before the phone hotspot
 comes up and while the setup portal is still open.
@@ -15,12 +15,13 @@ The version number lives in exactly one place: `SpotifyDiyThing/version.h`.
   so the screen never waits on the network.
 - **Clock** - tap the header clock for a full-screen clock. Spotify polling and
   cover downloads keep running behind it.
-- **Visualizers** - tap the Wi-Fi bars for forty microphone modes, including a
-  Pioneer-style leaping `DOLPHIN`. Tap the right half of the screen for the next
-  mode and the left half for the previous one; the top-right X closes. The
-  chosen mode is stored in NVS, so the unit comes back on the same one after the
-  ignition goes off. Buffered into an off-screen frame and pushed at ~24 FPS, so
-  there is no visible clear pass.
+- **Visualizers** - tap the Wi-Fi bars for forty-one modes, including a
+  Pioneer-style leaping `DOLPHIN` and a `PIONEER` mode that plays frame packs
+  off the SD card. A sun in the chrome row cycles brightness. Tap the right
+  half of the screen for the next mode and the left half for the previous one;
+  the top-right X closes. The chosen mode is stored in NVS, so the unit comes
+  back on the same one after the ignition goes off. Buffered into an off-screen
+  frame and pushed at ~24 FPS, so there is no visible clear pass.
 - **Visualizer palette** - every mode draws from a single green-to-cyan ramp in
   `cydTheme.h`. Depth and energy are shown by moving along the hue axis, never
   by darkening, so no mode ever draws a muddy dark green. The player palette is
@@ -58,6 +59,47 @@ shown on screen. Besides the Spotify credentials the portal now configures:
 These were compile-time constants pinned to Ireland and Sofia until v0.3.16.
 Settings are stored next to the credentials in `/spotify_diy_config.json`; a
 config written by an older build still loads and picks up the defaults above.
+
+
+## Animations (the PIONEER mode)
+
+Forty of the modes are procedural: they read the FFT and draw geometry. The
+forty-first plays a pre-drawn frame sequence off the SD card, because that is
+what the Pioneer head units this keeps being compared to actually did, and no
+amount of trigonometry produces it.
+
+Packs are 1 bit per pixel, matching the monochrome OEL panels the originals
+used. That is not a compromise: a 320x200 frame is 8 KB against 128 KB for
+RGB565, which is the difference between 192 KB/s off the card at 24 FPS and
+3 MB/s. The single bit picks background or palette colour, so the animation
+inherits the green-cyan rather than fighting it.
+
+```
+python tools/make_animation.py frames/ -o dolphin.anm --fps 12
+python tools/make_animation.py clip.gif -o dolphin.anm --fps 12
+```
+
+Copy the result to `/anim/dolphin.anm` on the same card the album cache uses.
+Several packs in `/anim` play one after another. The mode says what is missing
+if the directory is empty rather than showing a black screen.
+
+To get frames out of a video:
+
+```
+ffmpeg -i clip.mp4 -vf fps=12,scale=320:-1 frames/%04d.png
+```
+
+The converter is standard library only - PNG through `zlib`, GIF through an LZW
+decoder in the file - because PlatformIO ships a Python but no Pillow, and
+needing a `pip install` into that virtualenv to convert an image is a poor
+trade. Use `--invert` for artwork on a white background and `--threshold` to
+move the cut between lit and unlit.
+
+**Playback stops the microphone.** The I2S capture task and the FFT sit on core
+0, which is where the SD reads land too, and a frame sequence needs neither. The
+mode opens paused, showing frame zero behind a play button with the spectrum
+still live underneath; pressing play switches the microphone off and gives the
+frames the core. Pressing it again hands the microphone back.
 
 ## Building
 

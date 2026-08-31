@@ -23,6 +23,7 @@ enum class TouchAction : int8_t
   NextVisualizerStyle,
   PreviousVisualizerStyle,
   SkipWiFiWait,
+  ToggleAnimationPlayback,
   OpenOfflineVisualizer
 };
 
@@ -41,3 +42,8 @@ void setTouchSetupPortalMode(bool active);
 // because the player map leaves the middle of the screen inert, and the middle
 // is exactly where someone jabs at a screen that is not doing anything.
 void setTouchConnectingMode(bool active);
+
+// True while the PIONEER mode is the one on screen. It puts a play/stop button
+// in the middle of the overlay, which has to be tested before the left/right
+// mode split or it would just be another "next mode" tap.
+void setTouchAnimationMode(bool active);

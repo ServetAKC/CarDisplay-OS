@@ -51,6 +51,9 @@ const VisualizerRenderer::ModeDef VisualizerRenderer::MODES[] = {
     {"PARTICLE JET", &VisualizerRenderer::drawParticleJet, true},
     {"WAVE GRID", &VisualizerRenderer::drawWaveGrid, true},
     {"CHROMA RINGS", &VisualizerRenderer::drawChromaRings, false},
+    // Not procedural like every row above it: this one plays frame packs off
+    // the SD card. See animationPlayer.h for why that needs to exist at all.
+    {"PIONEER", &VisualizerRenderer::drawPioneer, true},
 };
 
 namespace
@@ -86,6 +89,10 @@ bool VisualizerRenderer::begin()
                 "MODE_COUNT must match the number of rows in the MODES table");
 
   loadStyle();
+
+  // Scanning the card once here means the PIONEER mode knows whether it has
+  // anything to play before the user ever selects it.
+  animation.begin();
 
   micOk = audioVisualizer.begin();
   if (!micOk)
@@ -155,6 +162,12 @@ void VisualizerRenderer::close()
   openFlag = false;
   audioVisualizer.setActive(false);
   releaseSprite();
+
+  if (animationOpen)
+  {
+    animation.close();
+    animationOpen = false;
+  }
 
   // Leaving the overlay is the last chance to persist the mode; the user may
   // switch the ignition off from the player screen.
@@ -349,7 +362,73 @@ void VisualizerRenderer::drawChrome()
   tft.fillRect(0, 0, 278, layout::OVERLAY_TOP, TFT_BLACK);
   tft.setTextColor(theme::DIM, TFT_BLACK);
   tft.drawString(label, 8, 12, 2);
+  drawBrightnessSun();
   drawOverlayCloseButton();
+}
+
+// The brightness control for the overlay.
+//
+// The player screen cycles brightness from the Spotify badge, and the overlay
+// covers that badge - so until v0.4 the only way to dim the offline visualizer
+// at night was to close it, dim, and reopen it.
+//
+// A plain sun: filled core, eight straight rays off the direction table. No
+// gradient and no glow. It is eleven pixels across and has to read at a glance
+// from a driving position.
+void VisualizerRenderer::drawBrightnessSun()
+{
+  constexpr int CX = 238;
+  constexpr int CY = 19;
+  constexpr int CORE = 5;
+  constexpr int RAY_INNER = 8;
+  constexpr int RAY_OUTER = 11;
+
+  tft.fillRect(224, 0, 52, layout::OVERLAY_TOP, TFT_BLACK);
+  tft.fillCircle(CX, CY, CORE, theme::BRIGHT);
+  for (int i = 0; i < 32; i += 4) // eight rays, every fourth direction
+  {
+    const int x0 = CX + (UNIT_DX[i] * RAY_INNER) / 1000;
+    const int y0 = CY + (UNIT_DY[i] * RAY_INNER) / 1000;
+    const int x1 = CX + (UNIT_DX[i] * RAY_OUTER) / 1000;
+    const int y1 = CY + (UNIT_DY[i] * RAY_OUTER) / 1000;
+    tft.drawLine(x0, y0, x1, y1, theme::BRIGHT);
+  }
+
+  char value[8];
+  snprintf(value, sizeof(value), "%u%%", static_cast<unsigned>(brightnessPercent));
+  tft.setTextColor(theme::DIM, TFT_BLACK);
+  tft.drawString(value, 252, 13, 1);
+}
+
+void VisualizerRenderer::setBrightnessPercent(uint8_t percent)
+{
+  brightnessPercent = percent;
+  // Only the sun is repainted. Redrawing the whole chrome would be a visible
+  // flash on a screen whose whole job is to be looked at.
+  if (openFlag && micOk)
+    drawBrightnessSun();
+}
+
+bool VisualizerRenderer::isAnimationMode() const
+{
+  return MODES[styleIndex % MODE_COUNT].draw == &VisualizerRenderer::drawPioneer;
+}
+
+void VisualizerRenderer::toggleAnimationPlayback()
+{
+  if (!openFlag || !isAnimationMode() || !animationOpen)
+    return;
+
+  animationPlaying = !animationPlaying;
+
+  // Playback takes the machine. The I2S capture task and the FFT sit on core 0,
+  // which is also where the SD reads for the frames land, and a pre-drawn
+  // sequence needs neither of them - so the microphone goes off for the
+  // duration and the frames get the core to themselves.
+  audioVisualizer.setActive(!animationPlaying);
+
+  lastDrawTime = 0;
+  drawFrame(true);
 }
 
 void VisualizerRenderer::drawFrame(bool force)
@@ -374,6 +453,30 @@ void VisualizerRenderer::drawFrame(bool force)
     lastFrameCounter = frameCounter;
 
   const ModeDef &mode = MODES[styleIndex % MODE_COUNT];
+
+  // The animation pack holds an 8 KB frame buffer and an SD handle, so it is
+  // opened only while its own mode is the one being drawn and handed straight
+  // back on the way out. Comparing the draw pointer keeps this out of the mode
+  // table, which stays a plain list.
+  const bool wantsAnimation = mode.draw == &VisualizerRenderer::drawPioneer;
+  if (wantsAnimation && !animationOpen)
+  {
+    animationOpen = animation.open();
+    animationPlaying = false; // always arrives paused, showing frame zero
+  }
+  else if (!wantsAnimation && animationOpen)
+  {
+    // Leaving the mode has to hand the microphone back, or every mode after
+    // this one would draw a flat line and look broken.
+    if (animationPlaying)
+    {
+      audioVisualizer.setActive(true);
+      animationPlaying = false;
+    }
+    animation.close();
+    animationOpen = false;
+  }
+
   if (!force && !frameChanged && !mode.continuous)
     return;
 

@@ -1105,3 +1105,122 @@ void VisualizerRenderer::drawChromaRings(const Frame &frame, bool force)
   endFrame(tft);
   present();
 }
+
+// ---------------------------------------------------------------------------
+// PIONEER
+//
+// The one mode that is not procedural. Everything above reads the FFT and draws
+// geometry; this plays a pre-drawn frame sequence off the SD card, which is how
+// the Pioneer head units did their dolphins and race cars and is the only way
+// to get that look. AnimationPlayer owns the format and the pacing.
+// ---------------------------------------------------------------------------
+
+// The play / stop button, and the only control in the middle of any overlay.
+// It has to be drawn where touchScreen.cpp's ANIMATION_PLAY_ZONE tests, so both
+// numbers are written once here and once there and must agree.
+void VisualizerRenderer::drawAnimationPlayButton(TFT_eSPI &target)
+{
+  constexpr int X = 110;
+  constexpr int Y = 138;
+  constexpr int W = 100;
+  constexpr int H = 64;
+  const int cx = X + W / 2;
+  const int cy = Y + H / 2;
+
+  if (animationPlaying)
+  {
+    // While it plays the frame is the point, so the control shrinks to a small
+    // stop square out of the way in the corner. Tapping the middle still stops
+    // it, the way a video player behaves.
+    target.drawRect(8, SCENE_BOTTOM - 18, 14, 14, theme::VIZ_DEEP);
+    target.fillRect(11, SCENE_BOTTOM - 15, 8, 8, theme::VIZ_GLOW);
+    return;
+  }
+
+  target.fillRect(X, Y, W, H, TFT_BLACK);
+  target.drawRoundRect(X, Y, W, H, 8, theme::VIZ_MID);
+  target.drawRoundRect(X + 1, Y + 1, W - 2, H - 2, 7, theme::VIZ_DEEP);
+
+  // A filled play triangle. fillTriangle is the only non-axis-aligned filled
+  // primitive TFT_eSPI has, which is exactly one more than this needs.
+  target.fillTriangle(cx - 10, cy - 14, cx - 10, cy + 14, cx + 16, cy,
+                      theme::VIZ_BRIGHT);
+}
+
+void VisualizerRenderer::drawPioneer(const Frame &frame, bool force)
+{
+  (void)force;
+  TFT_eSPI &tft = canvas();
+  const uint8_t *levels = frame.levels;
+
+  beginFrame(tft);
+  tft.fillRect(0, SCENE_TOP, layout::SCREEN_WIDTH, SCENE_HEIGHT, TFT_BLACK);
+
+  if (!animationOpen)
+  {
+    // Say what is missing rather than showing a black rectangle. Getting a pack
+    // onto the card is a five step job and any one of them can be the one that
+    // was skipped, so name the path and let the card be checked.
+    tft.setTextColor(theme::VIZ_BRIGHT, TFT_BLACK);
+    tft.drawCentreString("NO ANIMATION", SCENE_CENTRE_X, 96, 4);
+    tft.setTextColor(theme::VIZ_GLOW, TFT_BLACK);
+    tft.drawCentreString("Put a .anm pack in /anim", SCENE_CENTRE_X, 132, 2);
+    tft.drawCentreString("on the SD card", SCENE_CENTRE_X, 152, 2);
+    tft.setTextColor(theme::VIZ_DEEP, TFT_BLACK);
+    tft.drawCentreString("tools/make_animation.py builds one", SCENE_CENTRE_X, 180, 1);
+    endFrame(tft);
+    present();
+    return;
+  }
+
+  // Centred horizontally, sitting at the top of the scene. A pack shorter than
+  // the scene leaves room along the bottom, which is where the spectrum goes -
+  // the arrangement the originals used.
+  const int width = animation.frameWidth();
+  const int height = animation.frameHeight();
+  const int originX = (layout::SCREEN_WIDTH - width) / 2;
+  const int spare = SCENE_HEIGHT - height;
+
+  bool alive = true;
+  if (animationPlaying)
+  {
+    alive = animation.service(tft, originX, SCENE_TOP);
+  }
+  else
+  {
+    // Paused: the loaded frame stands as a poster behind the play button, and
+    // the microphone is still running, so the spectrum below it still moves.
+    animation.drawCurrent(tft, originX, SCENE_TOP);
+  }
+
+  if (!alive)
+  {
+    tft.fillRect(0, SCENE_TOP, layout::SCREEN_WIDTH, SCENE_HEIGHT, TFT_BLACK);
+    tft.setTextColor(theme::VIZ_BRIGHT, TFT_BLACK);
+    tft.drawCentreString("SD CARD LOST", SCENE_CENTRE_X, 120, 4);
+    endFrame(tft);
+    present();
+    return;
+  }
+
+  // The spectrum only while paused. During playback the microphone is off, so
+  // the levels are a frozen frame of silence and drawing them would be a lie
+  // painted over somebody's artwork.
+  if (!animationPlaying && spare >= 28)
+  {
+    const int baseline = SCENE_BOTTOM - 2;
+    const int maxHeight = spare - 8;
+    for (size_t i = 0; i < BANDS; ++i)
+    {
+      const int barHeight = (levels[i] * maxHeight) / 100;
+      if (barHeight <= 0)
+        continue;
+      tft.fillRect(8 + static_cast<int>(i) * 19, baseline - barHeight, 16,
+                   barHeight, theme::vizBandHue(i, BANDS));
+    }
+  }
+
+  drawAnimationPlayButton(tft);
+  endFrame(tft);
+  present();
+}

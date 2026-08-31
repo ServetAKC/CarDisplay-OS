@@ -594,9 +594,14 @@ void CheapYellowDisplay::checkForInput()
     break;
   case TouchAction::NextVisualizerStyle:
     visualizer.nextStyle();
+    setTouchAnimationMode(visualizer.isAnimationMode());
     break;
   case TouchAction::PreviousVisualizerStyle:
     visualizer.previousStyle();
+    setTouchAnimationMode(visualizer.isAnimationMode());
+    break;
+  case TouchAction::ToggleAnimationPlayback:
+    visualizer.toggleAnimationPlayback();
     break;
   case TouchAction::ToggleVisualizer:
     toggleVisualizerMode();
@@ -854,12 +859,17 @@ void CheapYellowDisplay::toggleVisualizerMode()
     setTouchVisualizerMode(true);
     playerShellDrawn = false;
     albumCache.setPaused(true);
+    // The sun in the chrome shows the current level, and the play hotspot is
+    // only live when the mode that has a play button is the one on screen.
+    visualizer.setBrightnessPercent(backlight.effectivePercent());
     visualizer.open();
+    setTouchAnimationMode(visualizer.isAnimationMode());
     return;
   }
 
   visualizer.close();
   setTouchVisualizerMode(false);
+  setTouchAnimationMode(false);
   albumCache.setPaused(false);
 
   if (wifiSetupMode)
@@ -882,6 +892,10 @@ void CheapYellowDisplay::toggleVisualizerMode()
 void CheapYellowDisplay::cycleBrightness()
 {
   backlight.cycleManual();
+
+  // Two places show the level: the toast on the player screen, and the sun in
+  // the visualizer chrome. Only one of them is ever visible.
+  visualizer.setBrightnessPercent(backlight.effectivePercent());
   drawBrightnessToast();
 }
 
