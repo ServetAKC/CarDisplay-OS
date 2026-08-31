@@ -130,6 +130,31 @@ pio test -e native
 
 pio test -e esp32_test         # or run the same suite on the board
 ```
+### Installing a pack without a card reader
+
+The card lives inside the unit, and not everybody has a reader. Same trick the
+Japanese font uses: the pack is baked into a one-time firmware that writes it to
+the card.
+
+1. Build the pack into `firmware_assets/anim.anm`:
+
+   ```
+   python tools/make_dolphin_pack.py            # the leaping dolphin
+   python tools/make_animation.py clip.gif -o firmware_assets/anim.anm
+   ```
+
+2. In PlatformIO Project Tasks open `cyd2usb_anim_installer` and click Upload.
+3. Wait until the CYD shows `ANIM READY`.
+4. Open `cyd2usb` and click Upload.
+
+It lands as `/anim/dolphin.anm`. To install a second pack beside the first
+rather than over it, add `-DCARDISPLAY_ANIM_NAME='"racecar"'` to that
+environment's `build_flags` and upload it again.
+
+`tools/make_dolphin_pack.py` reads the sprite out of `visualizerModes.cpp`
+rather than keeping its own copy, so editing the dolphin art changes both the
+procedural `DOLPHIN` mode and the pack.
+
 
 ## Japanese font (no card reader needed)
 

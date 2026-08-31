@@ -61,6 +61,10 @@ SpotifyDisplay *spotifyDisplay = &matrixDisplay;
 #include "fontInstaller.h"
 #endif
 
+#ifdef CARDISPLAY_ANIM_INSTALLER
+#include "animationInstaller.h"
+#endif
+
 #ifdef NFC_ENABLED
 #include "nfc.h"
 // Writing the context URI can misbehave when an album auto-plays into related
@@ -197,6 +201,11 @@ void setup()
 
 #ifdef HONDATHING_FONT_INSTALLER
   runHondaJapaneseFontInstaller();
+  return;
+#endif
+
+#ifdef CARDISPLAY_ANIM_INSTALLER
+  runCarDisplayAnimationInstaller();
   return;
 #endif
 
