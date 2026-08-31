@@ -21,9 +21,10 @@ The version number lives in exactly one place: `SpotifyDiyThing/version.h`.
   chosen mode is stored in NVS, so the unit comes back on the same one after the
   ignition goes off. Buffered into an off-screen frame and pushed at ~24 FPS, so
   there is no visible clear pass.
-- **One palette** - every mode draws from a single green-to-cyan ramp in
+- **Visualizer palette** - every mode draws from a single green-to-cyan ramp in
   `cydTheme.h`. Depth and energy are shown by moving along the hue axis, never
-  by darkening, so nothing on screen is ever a muddy dark green.
+  by darkening, so no mode ever draws a muddy dark green. The player palette is
+  a separate set of constants and is unchanged since v0.3.
 - **Offline mode** - a boot with no reachable network opens the setup screen by
   itself after 15 seconds, and that screen carries the `OFFLINE VISUALIZER`
   button. Touching the connecting screen skips the wait entirely. No double

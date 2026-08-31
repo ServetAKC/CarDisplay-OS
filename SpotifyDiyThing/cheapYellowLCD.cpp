@@ -976,7 +976,7 @@ void CheapYellowDisplay::drawSetupRow(const char *label, const char *value,
 {
   tft.setTextColor(theme::DIM, TFT_BLACK);
   tft.drawString(label, SETUP_PANEL_X + 14, y, 1);
-  tft.setTextColor(theme::VIZ_BRIGHT, TFT_BLACK);
+  tft.setTextColor(theme::BRIGHT, TFT_BLACK);
   tft.drawString(value, SETUP_PANEL_X + 14, y + 11, valueFont);
 }
 
@@ -994,8 +994,8 @@ void CheapYellowDisplay::drawSetupStatus(bool force)
   setupStatusFrame++;
 
   tft.fillRect(STATUS_X, STATUS_Y, STATUS_W, STATUS_H, TFT_BLACK);
-  tft.drawRoundRect(STATUS_X, STATUS_Y, STATUS_W, STATUS_H, 4, theme::VIZ_DEEP);
-  tft.setTextColor(theme::VIZ_GLOW, TFT_BLACK);
+  tft.drawRoundRect(STATUS_X, STATUS_Y, STATUS_W, STATUS_H, 4, theme::DARK);
+  tft.setTextColor(theme::DIM, TFT_BLACK);
   tft.drawString(text, STATUS_X + 8, STATUS_Y + 6, 1);
 
   // A small bar that fills as the retry window runs down would need the
@@ -1017,16 +1017,16 @@ void CheapYellowDisplay::drawWifiSetupScreen()
   // Header: a title and the accent rule under it, rather than a box drawn
   // around the whole screen. The old full-screen border ate eight pixels on
   // every edge and framed nothing in particular.
-  tft.setTextColor(theme::VIZ_BRIGHT, TFT_BLACK);
+  tft.setTextColor(theme::BRIGHT, TFT_BLACK);
   tft.drawString("WI-FI SETUP", 12, 8, 4);
-  tft.drawFastHLine(0, 38, layout::SCREEN_WIDTH, theme::VIZ_MID);
-  tft.drawFastHLine(0, 39, layout::SCREEN_WIDTH, theme::VIZ_DEEP);
+  tft.drawFastHLine(0, 38, layout::SCREEN_WIDTH, theme::GREEN);
+  tft.drawFastHLine(0, 39, layout::SCREEN_WIDTH, theme::DARK);
   setupStatusFrame = 0;
   drawSetupStatus(true);
 
   // One panel for everything that has to be typed into a phone.
   tft.drawRoundRect(SETUP_PANEL_X, SETUP_PANEL_Y, SETUP_PANEL_W, SETUP_PANEL_H,
-                    6, theme::VIZ_DEEP);
+                    6, theme::DARK);
 
   drawSetupRow("NETWORK", wifiSetupSsid, SETUP_PANEL_Y + 10, 4);
   drawSetupRow("PASSWORD", "thing123", SETUP_PANEL_Y + 46, 2);
@@ -1036,16 +1036,16 @@ void CheapYellowDisplay::drawWifiSetupScreen()
   // control rather than as another panel; the CYD has no hover or press state
   // to lean on, so the affordance has to be in the drawing.
   tft.drawRoundRect(OFFLINE_BUTTON_X, OFFLINE_BUTTON_Y, OFFLINE_BUTTON_W,
-                    OFFLINE_BUTTON_H, 8, theme::VIZ_MID);
+                    OFFLINE_BUTTON_H, 8, theme::GREEN);
   tft.drawRoundRect(OFFLINE_BUTTON_X + 1, OFFLINE_BUTTON_Y + 1,
-                    OFFLINE_BUTTON_W - 2, OFFLINE_BUTTON_H - 2, 7, theme::VIZ_DEEP);
+                    OFFLINE_BUTTON_W - 2, OFFLINE_BUTTON_H - 2, 7, theme::DARK);
   tft.fillRect(OFFLINE_BUTTON_X + 2, OFFLINE_BUTTON_Y + 8, 4,
-               OFFLINE_BUTTON_H - 16, theme::VIZ_BRIGHT);
+               OFFLINE_BUTTON_H - 16, theme::BRIGHT);
 
   // "OFFLINE VISUALIZER" in font 4 measures about 250 px against 252 px of
   // usable button width, which is a clip waiting to happen on a longer string.
   // The short label carries the meaning and leaves the detail to the subtitle.
-  tft.setTextColor(theme::VIZ_PEAK, TFT_BLACK);
+  tft.setTextColor(theme::PRESS, TFT_BLACK);
   tft.drawCentreString("OFFLINE MODE", layout::CENTRE_X,
                        OFFLINE_BUTTON_Y + 9, 4);
   tft.setTextColor(theme::DIM, TFT_BLACK);
@@ -1097,6 +1097,32 @@ void CheapYellowDisplay::finishConfigPortal()
 // Startup Wi-Fi animation
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// The connecting screen.
+//
+// Drawn from the animation task, not the loop task - it is the one place in the
+// firmware where that is true, and it is deliberate: the loop is blocked inside
+// waitForWiFi() for the whole time this screen is up, so nothing else is
+// touching the panel.
+//
+// It shares the setup screen's header and accent rule so the two read as one
+// product, and it carries the two things v0.4 made true and the driver cannot
+// otherwise know: the wait is finite, and touching the screen ends it now.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+constexpr int CONNECT_DOT_Y = 96;
+constexpr int CONNECT_DOT_RADIUS = 6;
+constexpr int CONNECT_BARS_BASE = 156;
+constexpr int CONNECT_SSID_Y = 172;
+constexpr int CONNECT_BAR_X = 24;
+constexpr int CONNECT_BAR_Y = 200;
+constexpr int CONNECT_BAR_W = 272;
+constexpr int CONNECT_BAR_H = 5;
+constexpr int CONNECT_HINT_Y = 216;
+} // namespace
+
 void CheapYellowDisplay::drawWiFiConnectingBase()
 {
   clockMode = false;
@@ -1107,9 +1133,21 @@ void CheapYellowDisplay::drawWiFiConnectingBase()
   playerShellDrawn = false;
 
   tft.fillScreen(TFT_BLACK);
-  tft.drawRect(3, 3, 314, 234, theme::DARK);
-  tft.setTextColor(theme::GREEN, TFT_BLACK);
-  tft.drawCentreString("CONNECTING", layout::CENTRE_X, 72, 4);
+  tft.setTextColor(theme::BRIGHT, TFT_BLACK);
+  tft.drawString("CONNECTING", 12, 8, 4);
+  tft.drawFastHLine(0, 38, layout::SCREEN_WIDTH, theme::GREEN);
+  tft.drawFastHLine(0, 39, layout::SCREEN_WIDTH, theme::DARK);
+
+  // The countdown track. Only drawn when the caller actually has a deadline;
+  // a forced config request opens the portal immediately and has none.
+  if (connectingWindowMs > 0)
+  {
+    tft.drawRect(CONNECT_BAR_X - 1, CONNECT_BAR_Y - 1, CONNECT_BAR_W + 2,
+                 CONNECT_BAR_H + 2, theme::DARK);
+    tft.setTextColor(theme::DIM, TFT_BLACK);
+    tft.drawCentreString("TOUCH ANYWHERE TO OPEN SETUP", layout::CENTRE_X,
+                         CONNECT_HINT_Y, 1);
+  }
 }
 
 void CheapYellowDisplay::drawWiFiAnimationFrame(uint8_t frame)
@@ -1117,22 +1155,49 @@ void CheapYellowDisplay::drawWiFiAnimationFrame(uint8_t frame)
   static const int dotX[4] = {124, 148, 172, 196};
   const uint8_t active = frame % 4;
 
-  tft.fillRect(108, 122, 104, 28, TFT_BLACK);
+  tft.fillRect(108, CONNECT_DOT_Y - 14, 104, 28, TFT_BLACK);
   for (uint8_t i = 0; i < 4; ++i)
   {
-    const uint16_t color = (i == active) ? theme::BRIGHT : theme::DIM;
-    const int radius = (i == active) ? 6 : 4;
-    tft.fillCircle(dotX[i], 136, radius, color);
+    const uint16_t color = (i == active) ? theme::PRESS : theme::DARK;
+    const int radius = (i == active) ? CONNECT_DOT_RADIUS : 4;
+    tft.fillCircle(dotX[i], CONNECT_DOT_Y, radius, color);
   }
 
-  // Small animated signal bars below the dots.
-  tft.fillRect(132, 164, 56, 30, TFT_BLACK);
+  // Signal bars. They climb with the same index as the dots, so the two read as
+  // one gesture rather than two unrelated timers.
+  tft.fillRect(132, CONNECT_BARS_BASE - 30, 56, 30, TFT_BLACK);
   for (uint8_t i = 0; i < 4; ++i)
   {
     const int height = 5 + (i * 6);
-    tft.fillRect(134 + (i * 13), 192 - height, 8, height,
+    tft.fillRect(134 + (i * 13), CONNECT_BARS_BASE - height, 8, height,
                  i <= active ? theme::GREEN : theme::DARK);
   }
+
+  // Which network, once WiFi.begin() has been called and there is one to name.
+  // Blank for the first frames, which is honest: nothing is being joined yet.
+  const String ssid = WiFi.SSID();
+  tft.fillRect(20, CONNECT_SSID_Y, 280, 18, TFT_BLACK);
+  if (ssid.length() > 0)
+  {
+    char line[40];
+    snprintf(line, sizeof(line), "joining %.28s", ssid.c_str());
+    tft.setTextColor(theme::DIM, TFT_BLACK);
+    tft.drawCentreString(line, layout::CENTRE_X, CONNECT_SSID_Y, 2);
+  }
+
+  if (connectingWindowMs == 0)
+    return;
+
+  // The bar drains rather than fills: it is time left, not progress made, and
+  // the thing it is counting down to is the setup screen opening.
+  const unsigned long spent = millis() - connectingStartTime;
+  const int remaining =
+      spent >= connectingWindowMs
+          ? 0
+          : static_cast<int>(((connectingWindowMs - spent) * CONNECT_BAR_W) / connectingWindowMs);
+  tft.fillRect(CONNECT_BAR_X, CONNECT_BAR_Y, CONNECT_BAR_W, CONNECT_BAR_H, TFT_BLACK);
+  if (remaining > 0)
+    tft.fillRect(CONNECT_BAR_X, CONNECT_BAR_Y, remaining, CONNECT_BAR_H, theme::GREEN);
 }
 
 void CheapYellowDisplay::wifiAnimationTaskTrampoline(void *parameter)
@@ -1156,13 +1221,15 @@ void CheapYellowDisplay::wifiAnimationTask()
   vTaskDelete(nullptr);
 }
 
-void CheapYellowDisplay::startWiFiConnectingAnimation()
+void CheapYellowDisplay::startWiFiConnectingAnimation(unsigned long setupOpensInMs)
 {
   stopWiFiConnectingAnimation();
 
   wifiAnimationActive = true;
   wifiAnimationRunning = true;
   wifiAnimationFrame = 0;
+  connectingStartTime = millis();
+  connectingWindowMs = setupOpensInMs;
   drawWiFiConnectingBase();
 
   const BaseType_t result = xTaskCreatePinnedToCore(

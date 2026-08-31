@@ -49,7 +49,7 @@ public:
   void drawWifiManagerMessage(WiFiManager *myWiFiManager) override;
   void drawRefreshTokenMessage() override;
 
-  void startWiFiConnectingAnimation() override;
+  void startWiFiConnectingAnimation(unsigned long setupOpensInMs = 0) override;
   void stopWiFiConnectingAnimation() override;
 
   void serviceConfigPortal() override;
@@ -135,6 +135,10 @@ private:
   volatile bool wifiAnimationActive = false;
   volatile bool wifiAnimationRunning = false;
   volatile uint8_t wifiAnimationFrame = 0;
+  // Start and length of the wait the connecting screen is counting down. Zero
+  // length means the caller gave no deadline, so no bar is drawn.
+  unsigned long connectingStartTime = 0;
+  unsigned long connectingWindowMs = 0;
 
   bool overlayModeActive() const { return clockMode || visualizer.isOpen(); }
   static const char *safeText(const char *text);

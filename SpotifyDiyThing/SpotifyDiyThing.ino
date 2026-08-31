@@ -219,7 +219,8 @@ void setup()
   const bool forceConfig = quickPowerCycle || !configAvailable;
 
   spotifyDisplay->displaySetup(&spotify);
-  spotifyDisplay->startWiFiConnectingAnimation();
+  // A forced config request opens the portal immediately and has no countdown.
+  spotifyDisplay->startWiFiConnectingAnimation(forceConfig ? 0UL : OFFLINE_FALLBACK_MS);
 
   waitForWiFi(forceConfig);
 

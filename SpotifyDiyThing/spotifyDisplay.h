@@ -29,7 +29,11 @@ class SpotifyDisplay {
 
     // Optional startup animation shown while WiFiManager connects to a saved AP.
     // Non-CYD displays can safely ignore these hooks.
-    virtual void startWiFiConnectingAnimation() {}
+    //
+    // setupOpensInMs is how long the caller will keep trying before it gives up
+    // and opens the setup portal, so the screen can show the wait running down.
+    // Zero means there is no such deadline and no progress bar is drawn.
+    virtual void startWiFiConnectingAnimation(unsigned long setupOpensInMs = 0) {}
     virtual void stopWiFiConnectingAnimation() {}
 
     // Wi-Fi setup can run non-blocking so CYD touch/audio visualizers remain

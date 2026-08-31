@@ -412,7 +412,7 @@ void VisualizerRenderer::drawSpectrumWithPeaks(const Frame &frame, bool force)
 
   beginFrame(tft);
   if (force)
-    tft.drawFastHLine(LEFT, BASELINE, 304, theme::DARK);
+    tft.drawFastHLine(LEFT, BASELINE, 304, theme::VIZ_DEEP);
 
   for (size_t i = 0; i < AudioVisualizer::BAR_COUNT; ++i)
   {
@@ -470,7 +470,7 @@ void VisualizerRenderer::drawMirroredSpectrum(const Frame &frame, bool force)
 
   beginFrame(tft);
   if (force)
-    tft.drawFastHLine(LEFT, CENTRE_Y, 304, theme::DIM);
+    tft.drawFastHLine(LEFT, CENTRE_Y, 304, theme::VIZ_GLOW);
 
   for (size_t i = 0; i < AudioVisualizer::BAR_COUNT; ++i)
   {
@@ -527,7 +527,7 @@ void VisualizerRenderer::drawOscilloscope(const Frame &frame, bool force)
     }
   }
 
-  tft.drawFastHLine(LEFT, CENTRE_Y, RIGHT - LEFT + 1, theme::DARK);
+  tft.drawFastHLine(LEFT, CENTRE_Y, RIGHT - LEFT + 1, theme::VIZ_DEEP);
   for (size_t i = 1; i < AudioVisualizer::WAVEFORM_COUNT; ++i)
   {
     const int x0 = LEFT + static_cast<int>((i - 1) * (RIGHT - LEFT) /
@@ -535,7 +535,7 @@ void VisualizerRenderer::drawOscilloscope(const Frame &frame, bool force)
     const int x1 = LEFT + static_cast<int>(i * (RIGHT - LEFT) /
                                            (AudioVisualizer::WAVEFORM_COUNT - 1));
     tft.drawLine(x0, nextY[i - 1], x1, nextY[i], theme::GREEN);
-    tft.drawLine(x0, nextY[i - 1] + 1, x1, nextY[i] + 1, theme::DIM);
+    tft.drawLine(x0, nextY[i - 1] + 1, x1, nextY[i] + 1, theme::VIZ_GLOW);
   }
   endFrame(tft);
   present();
@@ -615,11 +615,11 @@ void VisualizerRenderer::drawVuMeter(const Frame &frame, bool force)
 
   if (force)
   {
-    tft.drawRect(BAR_X - 2, BAR_Y - 2, BAR_WIDTH + 4, BAR_HEIGHT + 4, theme::DIM);
+    tft.drawRect(BAR_X - 2, BAR_Y - 2, BAR_WIDTH + 4, BAR_HEIGHT + 4, theme::VIZ_GLOW);
     for (int i = 0; i <= 10; ++i)
     {
       const int x = BAR_X + (BAR_WIDTH * i) / 10;
-      tft.drawFastVLine(x, BAR_Y + BAR_HEIGHT + 8, (i % 5 == 0) ? 9 : 5, theme::DIM);
+      tft.drawFastVLine(x, BAR_Y + BAR_HEIGHT + 8, (i % 5 == 0) ? 9 : 5, theme::VIZ_GLOW);
     }
   }
 
@@ -699,9 +699,9 @@ void VisualizerRenderer::drawRadialSpectrum(const Frame &frame, bool force)
   // A compact pulsing core makes the mode read as one coherent radial meter.
   tft.fillCircle(CENTRE_X, CENTRE_Y, 31, TFT_BLACK);
   const int coreRadius = map(overall, 0, 100, 12, 27);
-  tft.fillCircle(CENTRE_X, CENTRE_Y, coreRadius, theme::DARK);
+  tft.fillCircle(CENTRE_X, CENTRE_Y, coreRadius, theme::VIZ_DEEP);
   tft.drawCircle(CENTRE_X, CENTRE_Y, coreRadius, theme::GREEN);
-  tft.drawCircle(CENTRE_X, CENTRE_Y, INNER_RADIUS, theme::DIM);
+  tft.drawCircle(CENTRE_X, CENTRE_Y, INNER_RADIUS, theme::VIZ_GLOW);
 
   for (size_t i = 0; i < AudioVisualizer::BAR_COUNT; ++i)
   {
@@ -1222,9 +1222,9 @@ uint16_t VisualizerRenderer::waterfallColor(uint8_t level) const
   if (level < 12)
     return TFT_BLACK;
   if (level < 32)
-    return theme::DARK;
+    return theme::VIZ_DEEP;
   if (level < 55)
-    return theme::DIM;
+    return theme::VIZ_GLOW;
   if (level < 78)
     return theme::GREEN;
   return theme::BRIGHT;
@@ -1250,11 +1250,11 @@ void VisualizerRenderer::drawWaterfall(const Frame &frame, bool force)
     waterfallWriteY = TOP;
     lastWaterfallAdvanceTime = 0;
     tft.fillRect(0, 40, 320, 200, TFT_BLACK);
-    tft.setTextColor(theme::DIM, TFT_BLACK);
+    tft.setTextColor(theme::VIZ_GLOW, TFT_BLACK);
     tft.drawString("BASS", LEFT, 45, 2);
     tft.drawRightString("TREBLE", 312, 45, 2);
     for (int band = 1; band < BAND_COUNT; ++band)
-      tft.drawFastVLine(LEFT + band * BAND_WIDTH, TOP, BOTTOM - TOP, theme::DARK);
+      tft.drawFastVLine(LEFT + band * BAND_WIDTH, TOP, BOTTOM - TOP, theme::VIZ_DEEP);
   }
 
   // Ten history rows per second are easier to read and much lighter than
@@ -1267,7 +1267,7 @@ void VisualizerRenderer::drawWaterfall(const Frame &frame, bool force)
   {
     tft.fillRect(LEFT, TOP, BAND_COUNT * BAND_WIDTH, BOTTOM - TOP, TFT_BLACK);
     for (int band = 1; band < BAND_COUNT; ++band)
-      tft.drawFastVLine(LEFT + band * BAND_WIDTH, TOP, BOTTOM - TOP, theme::DARK);
+      tft.drawFastVLine(LEFT + band * BAND_WIDTH, TOP, BOTTOM - TOP, theme::VIZ_DEEP);
     waterfallWriteY = TOP;
   }
 
@@ -1281,7 +1281,7 @@ void VisualizerRenderer::drawWaterfall(const Frame &frame, bool force)
                  waterfallColor(combined));
   }
   tft.drawFastHLine(LEFT, waterfallWriteY + ROW_HEIGHT,
-                    BAND_COUNT * BAND_WIDTH, theme::DIM);
+                    BAND_COUNT * BAND_WIDTH, theme::VIZ_GLOW);
   endFrame(tft);
   present();
 
