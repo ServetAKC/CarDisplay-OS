@@ -1112,24 +1112,19 @@ void CheapYellowDisplay::finishConfigPortal()
 
 namespace
 {
-// The sweep track: one hairline with one short segment sliding along it. That
-// is the whole animation.
-//
-// It replaced four cycling dots stacked over four climbing signal bars, which
-// were two competing timers doing the same job loudly. One slow element reads
-// as "working" just as well and lets the screen be mostly empty, which is what
-// makes the countdown bar and the touch hint the things you actually notice.
-constexpr int CONNECT_TRACK_X = 60;
-constexpr int CONNECT_TRACK_W = 200;
-constexpr int CONNECT_TRACK_Y = 118;
-constexpr int CONNECT_SEGMENT_W = 28;
+// The signal bars: four bars climbing in sequence, the animation this screen
+// has always had. Only the four cycling dots that used to sit above them are
+// gone - they were a second timer saying the same thing, and the bars say it
+// better. With the dots out of the way the bars move up into the space they
+// left and are centred on the screen.
+constexpr int CONNECT_BARS_BASE = 134;
+constexpr int CONNECT_BARS_LEFT = 136; // four 8 px bars on a 13 px pitch, centred
+constexpr int CONNECT_BAR_PITCH = 13;
+constexpr int CONNECT_BAR_WIDTH = 8;
+constexpr int CONNECT_BARS_SPAN = CONNECT_BAR_WIDTH + CONNECT_BAR_PITCH * 3;
+constexpr int CONNECT_BARS_TALLEST = 5 + 3 * 6;
 
-// Pixels per frame. At the 160 ms frame interval this is a shade under eight
-// seconds for a full there-and-back, which is deliberately slower than anything
-// else on screen.
-constexpr int CONNECT_SWEEP_STEP = 7;
-
-constexpr int CONNECT_SSID_Y = 148;
+constexpr int CONNECT_SSID_Y = 152;
 constexpr int CONNECT_BAR_X = 24;
 constexpr int CONNECT_BAR_Y = 200;
 constexpr int CONNECT_BAR_W = 272;
@@ -1166,16 +1161,17 @@ void CheapYellowDisplay::drawWiFiConnectingBase()
 
 void CheapYellowDisplay::drawWiFiAnimationFrame(uint8_t frame)
 {
-  // Ping-pong rather than wrap: a segment that reappears at the left edge reads
-  // as a stutter, and the point of this screen is to look calm.
-  constexpr int TRAVEL = CONNECT_TRACK_W - CONNECT_SEGMENT_W;
-  int position = (frame * CONNECT_SWEEP_STEP) % (TRAVEL * 2);
-  if (position > TRAVEL)
-    position = TRAVEL * 2 - position;
+  const uint8_t active = frame % 4;
 
-  tft.fillRect(CONNECT_TRACK_X, CONNECT_TRACK_Y, CONNECT_TRACK_W, 1, theme::DARK);
-  tft.fillRect(CONNECT_TRACK_X + position, CONNECT_TRACK_Y, CONNECT_SEGMENT_W, 1,
-               theme::GREEN);
+  tft.fillRect(CONNECT_BARS_LEFT, CONNECT_BARS_BASE - CONNECT_BARS_TALLEST,
+               CONNECT_BARS_SPAN, CONNECT_BARS_TALLEST, TFT_BLACK);
+  for (uint8_t i = 0; i < 4; ++i)
+  {
+    const int height = 5 + (i * 6);
+    tft.fillRect(CONNECT_BARS_LEFT + (i * CONNECT_BAR_PITCH),
+                 CONNECT_BARS_BASE - height, CONNECT_BAR_WIDTH, height,
+                 i <= active ? theme::GREEN : theme::DARK);
+  }
 
   // Which network, once WiFi.begin() has been called and there is one to name.
   // Blank for the first frames, which is honest: nothing is being joined yet.

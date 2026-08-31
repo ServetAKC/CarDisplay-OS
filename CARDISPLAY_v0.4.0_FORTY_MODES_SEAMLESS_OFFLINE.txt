@@ -112,13 +112,11 @@ immediately.
   - "TOUCH ANYWHERE TO OPEN SETUP", which is the whole point of the touch map
     added earlier in this release and was previously undiscoverable.
 
-The four cycling dots and the four climbing signal bars are gone. They were two
-competing timers doing the same job loudly, stacked in the middle of the screen.
-What replaced them is one hairline with one short segment sliding along it,
-ping-ponging rather than wrapping - a segment that reappears at the left edge
-reads as a stutter - at a shade under eight seconds for a round trip, slower
-than anything else on screen. The screen is mostly empty now, which is what
-makes the countdown and the hint the things you actually notice.
+The four cycling dots are gone. The four climbing signal bars are not: they are
+the animation this screen has always had, and they say "working on it" better
+than the dots did. The dots were a second timer stacked on top of the bars
+saying the same thing. With them out of the way the bars move up into the space
+they left and sit centred, with the countdown bar and the touch hint below.
 
 
 -------------------------------------------------------------------------------
@@ -229,7 +227,7 @@ Build
   pio run -e cyd2usb
 
   RAM   30.7%  (100496 / 327680)   +152 bytes over v0.3.17
-  Flash 43.2%  (1359457 / 3145728) +13.7 KB over v0.3.17
+  Flash 43.2%  (1359461 / 3145728) +13.7 KB over v0.3.17
 
 Twenty modes for 11.6 KB is what sharing the per-mode state buffers buys; each
 mode carrying its own would not have fit.
