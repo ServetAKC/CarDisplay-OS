@@ -4,6 +4,7 @@
 
 #include "spotifyLogic.h"
 #include "timing.h"
+#include "visualizerGeometry.h"
 
 // The one list of visualizer modes. Order here is the order the on-screen
 // "n/N" counter and the tap-to-cycle sequence follow.
@@ -28,22 +29,36 @@ const VisualizerRenderer::ModeDef VisualizerRenderer::MODES[] = {
     {"DNA HELIX", &VisualizerRenderer::drawDnaHelix, true},
     {"RIPPLE POOL", &VisualizerRenderer::drawRipplePool, true},
     {"PHASE SCOPE", &VisualizerRenderer::drawPhaseScope, true},
+    // v0.4. Twenty more, all reached through the same table; see
+    // visualizerModes.cpp for the draw functions.
+    {"DOLPHIN", &VisualizerRenderer::drawDolphin, true},
+    {"SPECTRUM ARC", &VisualizerRenderer::drawSpectrumArc, false},
+    {"TWIN TOWERS", &VisualizerRenderer::drawTwinTowers, false},
+    {"WAVE TUNNEL", &VisualizerRenderer::drawWaveTunnel, true},
+    {"MIRROR X", &VisualizerRenderer::drawMirrorX, false},
+    {"COMET TRAIL", &VisualizerRenderer::drawCometTrail, true},
+    {"EQ STAIRS", &VisualizerRenderer::drawEqStairs, false},
+    {"SONAR SWEEP", &VisualizerRenderer::drawSonarSweep, true},
+    {"FREQ RIBBON", &VisualizerRenderer::drawFreqRibbon, false},
+    {"VOICE PRINT", &VisualizerRenderer::drawVoicePrint, true},
+    {"HEX PULSE", &VisualizerRenderer::drawHexPulse, false},
+    {"LED MATRIX", &VisualizerRenderer::drawLedMatrix, false},
+    {"SPIRAL ARM", &VisualizerRenderer::drawSpiralArm, true},
+    {"BOUNCE BALLS", &VisualizerRenderer::drawBounceBalls, true},
+    {"SCAN LINES", &VisualizerRenderer::drawScanLines, false},
+    {"KALEIDO", &VisualizerRenderer::drawKaleido, false},
+    {"NEEDLE GAUGE", &VisualizerRenderer::drawNeedleGauge, true},
+    {"PARTICLE JET", &VisualizerRenderer::drawParticleJet, true},
+    {"WAVE GRID", &VisualizerRenderer::drawWaveGrid, true},
+    {"CHROMA RINGS", &VisualizerRenderer::drawChromaRings, false},
 };
 
 namespace
 {
-// 32 unit vectors scaled by 1000, one every 11.25 degrees. Shared by every mode
-// that needs a direction without pulling in floating-point trig per frame.
-constexpr int16_t UNIT_DX[32] = {
-    0, 195, 383, 556, 707, 831, 924, 981,
-    1000, 981, 924, 831, 707, 556, 383, 195,
-    0, -195, -383, -556, -707, -831, -924, -981,
-    -1000, -981, -924, -831, -707, -556, -383, -195};
-constexpr int16_t UNIT_DY[32] = {
-    -1000, -981, -924, -831, -707, -556, -383, -195,
-    0, 195, 383, 556, 707, 831, 924, 981,
-    1000, 981, 924, 831, 707, 556, 383, 195,
-    0, -195, -383, -556, -707, -831, -924, -981};
+// The direction tables moved to visualizerGeometry.h in v0.4 so that
+// visualizerModes.cpp sees the same numbers instead of keeping a second copy.
+using vizgeom::UNIT_DX;
+using vizgeom::UNIT_DY;
 
 // The mode that a fresh device starts on. Looked up by name rather than index
 // so reordering the table above cannot silently change the default.
@@ -70,6 +85,18 @@ bool VisualizerRenderer::begin()
   static_assert(sizeof(MODES) / sizeof(MODES[0]) == MODE_COUNT,
                 "MODE_COUNT must match the number of rows in the MODES table");
 
+  loadStyle();
+
+  micOk = audioVisualizer.begin();
+  if (!micOk)
+    Serial.println(F("Visualizer will show MIC ERROR until I2S setup is fixed"));
+  return micOk;
+}
+
+// Restores the mode chosen on the last drive, falling back to the default when
+// NVS is empty or holds an index from a build with fewer modes.
+void VisualizerRenderer::loadStyle()
+{
   for (size_t i = 0; i < MODE_COUNT; ++i)
   {
     if (strcmp(MODES[i].name, DEFAULT_STYLE_NAME) == 0)
@@ -79,10 +106,33 @@ bool VisualizerRenderer::begin()
     }
   }
 
-  micOk = audioVisualizer.begin();
-  if (!micOk)
-    Serial.println(F("Visualizer will show MIC ERROR until I2S setup is fixed"));
-  return micOk;
+  preferencesReady = preferences.begin("hondathing", false);
+  if (!preferencesReady)
+  {
+    Serial.println(F("Visualizer: NVS unavailable, mode will not persist"));
+    return;
+  }
+
+  // 0xFF is the "never written" marker: a real index can never be that, and it
+  // keeps a fresh device on DEFAULT_STYLE_NAME rather than on mode zero.
+  const uint8_t saved = preferences.getUChar("vizmode", 0xFF);
+  if (saved < MODE_COUNT)
+    styleIndex = saved;
+}
+
+// Writes the chosen mode once the user has stopped cycling. Called from
+// service(), so it only runs while the overlay is actually open.
+void VisualizerRenderer::serviceStyleSave()
+{
+  if (styleSaveDue == 0 || !timeReached(styleSaveDue))
+    return;
+
+  styleSaveDue = 0;
+  if (!preferencesReady)
+    return;
+
+  if (preferences.getUChar("vizmode", 0xFF) != styleIndex)
+    preferences.putUChar("vizmode", styleIndex);
 }
 
 const char *VisualizerRenderer::styleName() const
@@ -105,17 +155,42 @@ void VisualizerRenderer::close()
   openFlag = false;
   audioVisualizer.setActive(false);
   releaseSprite();
+
+  // Leaving the overlay is the last chance to persist the mode; the user may
+  // switch the ignition off from the player screen.
+  if (styleSaveDue != 0)
+  {
+    styleSaveDue = 1; // any already-reached deadline
+    serviceStyleSave();
+  }
 }
 
-void VisualizerRenderer::nextStyle()
+// Both directions share this. Tapping the right half of the screen advances and
+// the left half goes back, so a mode overshot in a set of forty is one tap away
+// instead of thirty-nine.
+void VisualizerRenderer::stepStyle(int8_t direction)
 {
   if (!openFlag)
     return;
 
-  styleIndex = static_cast<uint8_t>((styleIndex + 1U) % MODE_COUNT);
+  const int next = (static_cast<int>(styleIndex) + direction + static_cast<int>(MODE_COUNT)) %
+                   static_cast<int>(MODE_COUNT);
+  styleIndex = static_cast<uint8_t>(next);
+  styleSaveDue = deadlineIn(STYLE_SAVE_DELAY_MS);
+
   resetDrawingState();
   lastDrawTime = 0;
   drawFrame(true);
+}
+
+void VisualizerRenderer::nextStyle()
+{
+  stepStyle(1);
+}
+
+void VisualizerRenderer::previousStyle()
+{
+  stepStyle(-1);
 }
 
 void VisualizerRenderer::redraw()
@@ -128,7 +203,12 @@ void VisualizerRenderer::redraw()
 
 void VisualizerRenderer::service()
 {
-  if (!openFlag || !elapsed(lastDrawTime, FRAME_INTERVAL_MS))
+  if (!openFlag)
+    return;
+
+  serviceStyleSave();
+
+  if (!elapsed(lastDrawTime, FRAME_INTERVAL_MS))
     return;
 
   lastDrawTime = millis();
@@ -229,6 +309,22 @@ void VisualizerRenderer::resetDrawingState()
   memset(rippleRadius, 0, sizeof(rippleRadius));
   memset(rippleStrength, 0, sizeof(rippleStrength));
   rippleArmed = true;
+
+  // v0.4 modes. Same contract as everything above: one mode runs at a time and
+  // switching must never leave it reading another mode's leftovers.
+  dolphinPhase = 0;
+  dolphinDirection = 1;
+  dolphinArc = 26;
+  dolphinSplash = 0;
+  memset(jetX, 0, sizeof(jetX));
+  memset(jetY, 0, sizeof(jetY));
+  memset(jetSpeed, 0, sizeof(jetSpeed));
+  gaugeAngle = 0;
+  gaugePeakAngle = 0;
+  gaugePeakHoldUntil = 0;
+  scrollColumn = 0;
+  memset(bounceHeight, 0, sizeof(bounceHeight));
+  memset(bounceVelocity, 0, sizeof(bounceVelocity));
 }
 
 void VisualizerRenderer::drawMicError()
@@ -243,8 +339,10 @@ void VisualizerRenderer::drawMicError()
 
 void VisualizerRenderer::drawChrome()
 {
-  char label[32];
-  snprintf(label, sizeof(label), "%u/%u  %s",
+  // The angle brackets are the only hint that the overlay is split left/right,
+  // and with forty modes it is a hint worth the eight pixels it costs.
+  char label[40];
+  snprintf(label, sizeof(label), "< %u/%u  %s >",
            static_cast<unsigned>(styleIndex) + 1U,
            static_cast<unsigned>(MODE_COUNT),
            styleName());

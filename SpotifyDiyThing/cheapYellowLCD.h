@@ -13,7 +13,7 @@
 //
 // This class used to be 3400 lines and owned everything: TFT drawing, touch
 // routing, SD and SPIFFS caching, HTTP downloads, PWM brightness, solar
-// geometry, NTP, and sixteen visualizers. It now owns only the player screen
+// geometry, NTP, and the visualizers. It now owns only the player screen
 // and the overlays, and delegates the rest:
 //
 //   AlbumArtCache        - acquisition, caching and drawing of covers

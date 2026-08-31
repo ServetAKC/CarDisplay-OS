@@ -595,6 +595,9 @@ void CheapYellowDisplay::checkForInput()
   case TouchAction::NextVisualizerStyle:
     visualizer.nextStyle();
     break;
+  case TouchAction::PreviousVisualizerStyle:
+    visualizer.previousStyle();
+    break;
   case TouchAction::ToggleVisualizer:
     toggleVisualizerMode();
     break;

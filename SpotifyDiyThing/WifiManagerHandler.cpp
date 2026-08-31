@@ -14,6 +14,15 @@ constexpr const char *WM_AP_PASSWORD = "thing123";
 
 constexpr unsigned long SAVED_NETWORK_TIMEOUT_MS = 5000UL;
 
+// How often to re-try the saved network while the setup portal is open.
+//
+// v0.3.17 treated the portal as a dead end: once it was open the only way back
+// to the player was to type credentials in or power cycle. In a car the phone
+// hotspot usually appears a few seconds AFTER the unit powers up, so the portal
+// has to keep watching for it. 20 s is long enough not to disturb the AP and
+// short enough that the hand-off feels automatic.
+constexpr unsigned long PORTAL_SAVED_RETRY_MS = 20000UL;
+
 bool shouldSaveConfig = false;
 
 void saveConfigCallback()
@@ -84,11 +93,19 @@ bool setupWiFiManager(bool forceConfig, DeviceConfig &config,
   {
     // Stop the double-power-cycle marker so forcing config cannot loop.
     clearPowerCycleMarker();
+
+    // Whether there is anything to fall back to. On a first-ever boot there is
+    // no saved network, so the portal is the only destination and re-trying
+    // would just churn the radio.
+    const bool hasSavedNetwork = wm.getWiFiIsSaved();
+
     wm.setConfigPortalBlocking(false);
     wm.startConfigPortal(WM_AP_SSID, WM_AP_PASSWORD);
 
     // Keep DNS/web setup, touch input and the microphone visualizer alive in
-    // one cooperative loop. Saving valid Wi-Fi credentials exits this loop.
+    // one cooperative loop. Saving valid Wi-Fi credentials exits this loop - and
+    // so does the saved network turning up on its own.
+    unsigned long nextSavedRetry = deadlineIn(PORTAL_SAVED_RETRY_MS);
     while (WiFi.status() != WL_CONNECTED)
     {
       const bool connected = wm.process();
@@ -97,6 +114,13 @@ bool setupWiFiManager(bool forceConfig, DeviceConfig &config,
       servicePowerCycleDetector();
       if (connected || WiFi.status() == WL_CONNECTED)
         break;
+
+      if (hasSavedNetwork && timeReached(nextSavedRetry))
+      {
+        nextSavedRetry = deadlineIn(PORTAL_SAVED_RETRY_MS);
+        Serial.println(F("Portal open; re-trying the saved network"));
+        WiFi.begin();
+      }
       delay(1);
     }
     wm.stopConfigPortal();
@@ -105,8 +129,8 @@ bool setupWiFiManager(bool forceConfig, DeviceConfig &config,
   }
   else
   {
-    // Normal boot never opens a captive portal. It only tries the saved network;
-    // the main loop keeps retrying if the phone hotspot is not ready yet.
+    // Normal boot never opens a captive portal on its own. It only tries the
+    // saved network; the caller escalates to the portal if that keeps failing.
     WiFi.mode(WIFI_STA);
     WiFi.begin();
     const unsigned long connectDeadline = deadlineIn(SAVED_NETWORK_TIMEOUT_MS);

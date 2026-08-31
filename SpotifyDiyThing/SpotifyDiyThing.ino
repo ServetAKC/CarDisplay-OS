@@ -13,7 +13,8 @@
       cheapYellowLCD.*      the CYD screen, which in turn owns
         albumArtCache.*       cover download and caching
         backlightController.* brightness and sunset dimming
-        visualizerRenderer.*  the sixteen microphone modes
+        visualizerRenderer.*  the forty microphone modes
+      visualizerModes.*     the twenty added in v0.4
 
     Hardware: https://github.com/witnessmenow/Spotify-Diy-Thing#hardware-required
  *******************************************************************/
@@ -71,6 +72,11 @@ namespace
 constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 5000;
 constexpr unsigned long WIFI_RETRY_WINDOW_MS = 5000;
 
+// How long a normal boot keeps trying the saved network before it gives up and
+// opens the setup portal on its own. Two 5 s attempts, so the setup page and the
+// offline visualizer are reachable roughly 12 s after power-on instead of never.
+constexpr unsigned long OFFLINE_FALLBACK_MS = 12000;
+
 unsigned long nextWiFiReconnectTime = 0;
 
 void drawWifiManagerMessage(WiFiManager *myWiFiManager)
@@ -80,36 +86,62 @@ void drawWifiManagerMessage(WiFiManager *myWiFiManager)
   spotifyDisplay->drawWifiManagerMessage(myWiFiManager);
 }
 
-// Keeps the UI alive and retries the saved network without rebooting. A dropped
-// phone hotspot must never send the unit into the setup portal or a reset loop.
+// Keeps the UI alive and retries the saved network without rebooting.
+//
+// v0.3.17 looped here forever when no saved network was reachable: the screen
+// stayed on the connecting animation, touch was never sampled, and the only way
+// to reach either the setup page or the offline visualizer was to power cycle
+// the unit twice. That is the single worst thing this firmware did in a car.
+//
+// v0.4 gives the saved network a bounded window and then opens the setup portal
+// by itself. The portal screen is also the screen that offers OFFLINE
+// VISUALIZER, and setupWiFiManager() keeps re-trying the saved network
+// underneath it, so a hotspot that appears late is still picked up with no
+// reboot and no second power cycle.
 void waitForWiFi(bool forceConfig)
 {
   bool connected = setupWiFiManager(forceConfig, deviceConfig,
                                     &drawWifiManagerMessage, spotifyDisplay);
+  if (connected)
+    return;
 
-  while (!connected)
+  // Only a normal boot gets the quiet retry window; a forced config request
+  // means the user asked for the portal and should not have to wait for it.
+  if (!forceConfig)
   {
-    servicePowerCycleDetector();
-
-    if (forceConfig)
-    {
-      Serial.println(F("Wi-Fi setup timed out; reopening setup portal"));
-      connected = setupWiFiManager(true, deviceConfig,
-                                   &drawWifiManagerMessage, spotifyDisplay);
-      continue;
-    }
-
-    Serial.println(F("Waiting for saved Wi-Fi..."));
-    WiFi.reconnect();
-    const unsigned long retryDeadline = deadlineIn(WIFI_RETRY_WINDOW_MS);
-    while (WiFi.status() != WL_CONNECTED && !timeReached(retryDeadline))
+    const unsigned long portalDeadline = deadlineIn(OFFLINE_FALLBACK_MS);
+    while (!timeReached(portalDeadline))
     {
       servicePowerCycleDetector();
-      delay(20);
+
+      Serial.println(F("Waiting for saved Wi-Fi..."));
+      WiFi.reconnect();
+      const unsigned long retryDeadline = deadlineIn(WIFI_RETRY_WINDOW_MS);
+      while (WiFi.status() != WL_CONNECTED && !timeReached(retryDeadline))
+      {
+        servicePowerCycleDetector();
+        delay(20);
+      }
+
+      if (WiFi.status() == WL_CONNECTED)
+        return;
     }
-    connected = WiFi.status() == WL_CONNECTED;
+    Serial.println(F("No saved network after the retry window; opening setup"));
+  }
+
+  // From here the portal is the destination. setupWiFiManager() only returns
+  // once something connected, but guard the loop anyway so a portal that is
+  // dismissed without credentials reopens instead of falling through to Spotify
+  // setup with no network.
+  while (!connected)
+  {
+    connected = setupWiFiManager(true, deviceConfig,
+                                 &drawWifiManagerMessage, spotifyDisplay);
+    if (!connected)
+      Serial.println(F("Wi-Fi setup ended without a connection; reopening"));
   }
 }
+
 
 // GPIO 0 (the CYD boot button) forces a fresh Spotify authorisation.
 bool refreshTokenForced()

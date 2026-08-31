@@ -3,6 +3,7 @@
 #include <SPI.h>
 
 #include "CYD28_TouchscreenR.h"
+#include "cydTheme.h"
 #include "timing.h"
 
 namespace
@@ -73,9 +74,16 @@ TouchAction classify(int16_t x, int16_t y)
 
   if (visualizerModeActive)
   {
-    // Top-right X closes. Any other tap advances to the next visualizer.
-    return OVERLAY_CLOSE_ZONE.contains(x, y) ? TouchAction::ToggleVisualizer
-                                             : TouchAction::NextVisualizerStyle;
+    // Top-right X closes. Otherwise the overlay is split down the middle:
+    // right half advances, left half goes back.
+    //
+    // v0.3 cycled one way from any tap, which was fine for twenty modes and is
+    // not for forty - overshooting the one you wanted meant thirty-nine more
+    // taps to come back to it.
+    if (OVERLAY_CLOSE_ZONE.contains(x, y))
+      return TouchAction::ToggleVisualizer;
+    return x >= layout::CENTRE_X ? TouchAction::NextVisualizerStyle
+                                 : TouchAction::PreviousVisualizerStyle;
   }
 
   if (VISUALIZER_ZONE.contains(x, y))

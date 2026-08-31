@@ -1,6 +1,6 @@
-# Car Display OS v0.3.17
+# Car Display OS v0.4.0
 
-Spotify album art, a full-screen clock and twenty microphone visualizers on a
+Spotify album art, a full-screen clock and forty microphone visualizers on a
 2-USB Cheap Yellow Display (ESP32-2432S028R). Online it follows Spotify; offline
 it runs the INMP441 visualizers, so the unit is useful before the phone hotspot
 comes up and while the setup portal is still open.
@@ -15,20 +15,28 @@ The version number lives in exactly one place: `SpotifyDiyThing/version.h`.
   so the screen never waits on the network.
 - **Clock** - tap the header clock for a full-screen clock. Spotify polling and
   cover downloads keep running behind it.
-- **Visualizers** - tap the Wi-Fi bars for twenty microphone modes; tap
-  anywhere to cycle, the top-right X to close. Buffered into an off-screen
-  frame and pushed at ~24 FPS, so there is no visible clear pass.
-- **Offline mode** - the Wi-Fi setup screen has an `OFFLINE VISUALIZER` button.
-  The setup hotspot and web page stay live behind it, and the X returns to
-  setup rather than to the player.
+- **Visualizers** - tap the Wi-Fi bars for forty microphone modes, including a
+  Pioneer-style leaping `DOLPHIN`. Tap the right half of the screen for the next
+  mode and the left half for the previous one; the top-right X closes. The
+  chosen mode is stored in NVS, so the unit comes back on the same one after the
+  ignition goes off. Buffered into an off-screen frame and pushed at ~24 FPS, so
+  there is no visible clear pass.
+- **One palette** - every mode draws from a single green-to-cyan ramp in
+  `cydTheme.h`. Depth and energy are shown by moving along the hue axis, never
+  by darkening, so nothing on screen is ever a muddy dark green.
+- **Offline mode** - a boot with no reachable network opens the setup screen by
+  itself after about 12 seconds, and that screen carries the
+  `OFFLINE VISUALIZER` button. No double power cycle is needed for either. The
+  saved network keeps being re-tried behind the portal, so a phone hotspot that
+  appears late is picked up without a reboot.
 - **Brightness** - tap the Spotify badge to cycle 100/75/50/25/10/5%, stored in
   NVS. At sunset the backlight dims once to 25%; the first manual press
   releases that cap for the rest of the night.
 - **Album cache** - covers are cached to SD as pre-decoded RGB565, and a
   rolling window of the next eight queued covers is prefetched, so track
   changes usually draw with no network round trip at all.
-- **Recovery** - a saved network reconnects without rebooting or opening setup.
-  Power-cycle twice quickly to force the setup portal open.
+- **Recovery** - a saved network reconnects without rebooting. Power-cycle twice
+  quickly to force the setup portal open immediately instead of waiting for it.
 
 ## First-run setup
 
@@ -99,7 +107,9 @@ SpotifyDiyThing/
     cydTheme.h               palette, layout, the single TFT instance
     albumArtCache.*          cover download, SD/SPIFFS caching, prefetch
     backlightController.*    manual levels, NVS, automatic sunset dim
-    visualizerRenderer.*     the sixteen modes and their frame buffer
+    visualizerRenderer.*     mode dispatch, frame buffer, the v0.3 modes
+    visualizerModes.*        the twenty modes added in v0.4
+    visualizerGeometry.h     shared integer direction tables
   audioVisualizer.*        I2S capture task
   audioSpectrum.*          FFT and band mapping     (Arduino-free, tested)
   solarTime.*              sunrise/sunset            (Arduino-free, tested)

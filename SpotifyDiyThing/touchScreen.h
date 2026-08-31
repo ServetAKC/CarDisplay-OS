@@ -21,6 +21,7 @@ enum class TouchAction : int8_t
   ToggleVisualizer,
   CycleBrightness,
   NextVisualizerStyle,
+  PreviousVisualizerStyle,
   OpenOfflineVisualizer
 };
 
