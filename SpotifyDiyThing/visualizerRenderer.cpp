@@ -31,7 +31,6 @@ const VisualizerRenderer::ModeDef VisualizerRenderer::MODES[] = {
     {"PHASE SCOPE", &VisualizerRenderer::drawPhaseScope, true},
     // v0.4. Twenty more, all reached through the same table; see
     // visualizerModes.cpp for the draw functions.
-    {"DOLPHIN", &VisualizerRenderer::drawDolphin, true},
     {"SPECTRUM ARC", &VisualizerRenderer::drawSpectrumArc, false},
     {"TWIN TOWERS", &VisualizerRenderer::drawTwinTowers, false},
     {"WAVE TUNNEL", &VisualizerRenderer::drawWaveTunnel, true},
@@ -167,6 +166,9 @@ void VisualizerRenderer::close()
   {
     animation.close();
     animationOpen = false;
+    // The menu belongs to this mode. Left open, its hotspot map would still be
+    // armed over whatever mode came next.
+    animationMenuOpen = false;
   }
 
   // Leaving the overlay is the last chance to persist the mode; the user may
@@ -355,10 +357,6 @@ void VisualizerRenderer::resetDrawingState()
 
   // v0.4 modes. Same contract as everything above: one mode runs at a time and
   // switching must never leave it reading another mode's leftovers.
-  dolphinPhase = 0;
-  dolphinDirection = 1;
-  dolphinArc = 26;
-  dolphinSplash = 0;
   memset(jetX, 0, sizeof(jetX));
   memset(jetY, 0, sizeof(jetY));
   memset(jetSpeed, 0, sizeof(jetSpeed));
@@ -461,6 +459,54 @@ void VisualizerRenderer::toggleAnimationPlayback()
   drawFrame(true);
 }
 
+void VisualizerRenderer::openAnimationMenu()
+{
+  if (!openFlag || !isAnimationMode() || !animationOpen || animationMenuOpen)
+    return;
+
+  // Playback stops on the way in. The menu covers the frame anyway, and the
+  // microphone has to come back or the modes behind this one would draw a flat
+  // line if the overlay were closed straight from the menu.
+  if (animationPlaying)
+  {
+    animationPlaying = false;
+    audioVisualizer.setActive(true);
+  }
+
+  animationMenuOpen = true;
+  lastDrawTime = 0;
+  drawFrame(true);
+}
+
+void VisualizerRenderer::closeAnimationMenu()
+{
+  if (!animationMenuOpen)
+    return;
+
+  animationMenuOpen = false;
+  lastDrawTime = 0;
+  drawFrame(true);
+}
+
+void VisualizerRenderer::pickAnimationAt(int16_t touchY)
+{
+  if (!animationMenuOpen)
+    return;
+
+  // Same arithmetic the drawing used, from the same constants.
+  const int offset = static_cast<int>(touchY) - MENU_TOP;
+  if (offset >= 0)
+  {
+    const size_t row = static_cast<size_t>(offset / MENU_ROW_HEIGHT);
+    if (row < animation.packCount())
+      animation.selectPack(row);
+  }
+
+  // The menu closes either way. A tap on the margin reads as "never mind"
+  // rather than leaving the list up looking like it ignored the press.
+  closeAnimationMenu();
+}
+
 void VisualizerRenderer::drawFrame(bool force)
 {
   if (!micOk)
@@ -505,6 +551,23 @@ void VisualizerRenderer::drawFrame(bool force)
     }
     animation.close();
     animationOpen = false;
+  }
+
+  // The selector replaces the scene. It is static, so it is painted on force
+  // and then left alone; running the mode underneath would fight it for the
+  // sprite every frame.
+  if (animationMenuOpen)
+  {
+    if (force)
+    {
+      tft.fillScreen(TFT_BLACK);
+      ensureSprite();
+      if (spriteReady)
+        sprite.fillSprite(TFT_BLACK);
+      drawAnimationMenu();
+      drawChrome();
+    }
+    return;
   }
 
   if (!force && !frameChanged && !mode.continuous)

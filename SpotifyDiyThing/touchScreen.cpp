@@ -52,6 +52,14 @@ constexpr Hotspot VISUALIZER_BRIGHTNESS_ZONE = {224, 274, 0, 44};
 // setTouchAnimationMode(true) says that mode is on screen.
 constexpr Hotspot ANIMATION_PLAY_ZONE = {110, 210, 138, 202};
 
+// The list button that opens the selector, bottom-left of the PIONEER overlay.
+// Must match drawAnimationListButton() in visualizerModes.cpp.
+constexpr Hotspot ANIMATION_LIST_ZONE = {8, 52, 196, 236};
+
+// While the selector is up the rows fill the scene. The renderer turns the Y
+// into a row, since it is the one that knows how many packs there are.
+constexpr Hotspot ANIMATION_MENU_ZONE = {0, 319, 40, 239};
+
 // Large button shown only on the Wi-Fi setup screen. Must match
 // OFFLINE_BUTTON_* in cheapYellowLCD.cpp; they are the same rectangle drawn
 // once and tested once.
@@ -67,6 +75,8 @@ volatile bool visualizerModeActive = false;
 volatile bool setupPortalModeActive = false;
 volatile bool connectingModeActive = false;
 volatile bool animationModeActive = false;
+volatile bool animationMenuActive = false;
+volatile int16_t lastTouchYValue = 0;
 
 TaskHandle_t touchReaderTaskHandle = nullptr;
 
@@ -102,10 +112,20 @@ TouchAction classify(int16_t x, int16_t y)
     // not for forty - overshooting the one you wanted meant thirty-nine more
     // taps to come back to it.
     if (OVERLAY_CLOSE_ZONE.contains(x, y))
-      return TouchAction::ToggleVisualizer;
+      return animationMenuActive ? TouchAction::CloseAnimationMenu
+                                 : TouchAction::ToggleVisualizer;
+
+    // The selector owns the scene while it is up, so it is tested before
+    // anything else. The X in the corner backs out of it without picking.
+    if (animationMenuActive)
+      return ANIMATION_MENU_ZONE.contains(x, y) ? TouchAction::PickAnimation
+                                                : TouchAction::None;
+
     if (VISUALIZER_BRIGHTNESS_ZONE.contains(x, y))
       return TouchAction::CycleBrightness;
-    // Before the split, or it would read as "next mode".
+    // Before the split, or these would read as "next mode".
+    if (animationModeActive && ANIMATION_LIST_ZONE.contains(x, y))
+      return TouchAction::OpenAnimationMenu;
     if (animationModeActive && ANIMATION_PLAY_ZONE.contains(x, y))
       return TouchAction::ToggleAnimationPlayback;
     return x >= layout::CENTRE_X ? TouchAction::NextVisualizerStyle
@@ -166,6 +186,9 @@ void touchReaderTask(void *)
         if (p.z >= PRESSURE_THRESHOLD)
         {
           const TouchAction action = classify(p.x, p.y);
+          // Latched with the action so the two cannot disagree; PickAnimation
+          // is meaningless without the row it came from.
+          lastTouchYValue = p.y;
           // Latch even on a dead zone, so one press cannot produce two actions
           // by sliding from an inert area onto a live one.
           if (connectingModeActive || setupPortalModeActive || clockModeActive ||
@@ -218,3 +241,6 @@ void setTouchVisualizerMode(bool active) { visualizerModeActive = active; }
 void setTouchSetupPortalMode(bool active) { setupPortalModeActive = active; }
 void setTouchConnectingMode(bool active) { connectingModeActive = active; }
 void setTouchAnimationMode(bool active) { animationModeActive = active; }
+void setTouchAnimationMenu(bool active) { animationMenuActive = active; }
+
+int16_t lastTouchY() { return lastTouchYValue; }

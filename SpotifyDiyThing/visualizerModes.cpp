@@ -37,42 +37,6 @@ constexpr int SCENE_CENTRE_X = layout::CENTRE_X;
 constexpr size_t BANDS = AudioVisualizer::BAR_COUNT;      // 16
 constexpr size_t WAVE_POINTS = AudioVisualizer::WAVEFORM_COUNT; // 64
 
-// A leaping dolphin, facing right, drawn as art rather than geometry.
-//
-// Pioneer head units have had one arcing over the spectrum analyser since the
-// 90s and that is what was asked for. No arrangement of circles and triangles
-// reads as a dolphin at this size, so it is a sprite. Rows may be any length -
-// drawing stops at the terminator - so trailing transparent columns are simply
-// left off, which is also why the tail rows are short.
-const char *const DOLPHIN_ART[] = {
-    ".................####",
-    "................######",
-    "...............########",
-    "..............##########.....######",
-    "............##############.#########",
-    "..........############################",
-    ".........##############################",
-    "##.......###############################",
-    "###.....################################",
-    "####...#################################",
-    "#####..#################################",
-    "######..###############################",
-    "#####..##############################",
-    "####...###########################",
-    "###....######################",
-    "##.....################...####",
-    ".......############.....#####",
-    "........#########........####",
-    "..........#####...........##",
-};
-constexpr int DOLPHIN_ROWS = static_cast<int>(sizeof(DOLPHIN_ART) / sizeof(DOLPHIN_ART[0]));
-constexpr int DOLPHIN_WIDTH = 40;
-
-// Where the eye sits in the art above, measured from the nose end so that the
-// horizontal flip moves it with the head instead of leaving it behind.
-constexpr int DOLPHIN_EYE_FROM_NOSE = 7;
-constexpr int DOLPHIN_EYE_ROW = 5;
-
 // Average of a slice of the spectrum, 0..100. Several modes want "how loud is
 // the bass" without caring which exact bin carried it.
 uint8_t bandAverage(const uint8_t *levels, size_t first, size_t last)
@@ -93,124 +57,6 @@ int clampInt(int value, int low, int high)
   return value < low ? low : (value > high ? high : value);
 }
 } // namespace
-
-// ---------------------------------------------------------------------------
-// DOLPHIN
-// ---------------------------------------------------------------------------
-
-void VisualizerRenderer::drawDolphin(const Frame &frame, bool force)
-{
-  (void)force;
-  TFT_eSPI &tft = canvas();
-  const uint8_t *levels = frame.levels;
-  const uint8_t overall = frame.overall;
-
-  // The sea line. Bars grow down from it so the spectrum reads as water rather
-  // than as a chart the dolphin happens to be standing on.
-  constexpr int WATER_Y = 196;
-  constexpr int TRAVEL_LEFT = 6;
-  constexpr int TRAVEL_SPAN = 268;
-
-  // Loudness sets how high the next leap goes. Smoothed hard on the way down so
-  // the dolphin does not belly-flop between two quiet frames.
-  const int targetArc = 26 + (overall * 92) / 100;
-  if (targetArc > dolphinArc)
-    dolphinArc = static_cast<uint8_t>(dolphinArc + (targetArc - dolphinArc) / 2 + 1);
-  else if (dolphinArc > 26)
-    dolphinArc = static_cast<uint8_t>(dolphinArc - 1);
-
-  // Advance along the leap. The floor keeps the animation alive in a silent
-  // cabin; without it the dolphin freezes mid-air and reads as a crash.
-  const int speed = 3 + overall / 18;
-  int phase = dolphinPhase + dolphinDirection * speed;
-  if (phase >= 255)
-  {
-    phase = 255;
-    dolphinDirection = -1;
-    dolphinSplash = 10;
-  }
-  else if (phase <= 0)
-  {
-    phase = 0;
-    dolphinDirection = 1;
-    dolphinSplash = 10;
-  }
-  dolphinPhase = static_cast<uint8_t>(phase);
-
-  // Parabolic leap: zero at both ends, dolphinArc at the midpoint.
-  const int height = (dolphinArc * phase * (255 - phase)) / 16256;
-
-  const int noseX = TRAVEL_LEFT + (phase * TRAVEL_SPAN) / 255;
-  const int bodyBottom = WATER_Y + 14 - height;
-  const int bodyTop = bodyBottom - DOLPHIN_ROWS;
-
-  beginFrame(tft);
-  tft.fillRect(0, SCENE_TOP, layout::SCREEN_WIDTH, SCENE_HEIGHT, TFT_BLACK);
-
-  // Sky: a faint horizon so the leap has something to be above.
-  tft.drawFastHLine(0, WATER_Y, layout::SCREEN_WIDTH, theme::VIZ_GLOW);
-
-  // The dolphin, flipped to face the way it is travelling.
-  const bool facingRight = dolphinDirection > 0;
-  for (int row = 0; row < DOLPHIN_ROWS; ++row)
-  {
-    const int y = bodyTop + row;
-    if (y < SCENE_TOP || y > SCENE_BOTTOM)
-      continue;
-
-    const char *art = DOLPHIN_ART[row];
-    for (int col = 0; art[col] != '\0'; ++col)
-    {
-      if (art[col] != '#')
-        continue;
-
-      // The art is drawn nose-right, so `col` counts back from the nose. Facing
-      // left mirrors that about noseX, which keeps the nose leading in both
-      // directions instead of the dolphin swimming backwards on the return leg.
-      const int fromNose = DOLPHIN_WIDTH - 1 - col;
-      const int x = facingRight ? (noseX - fromNose) : (noseX + fromNose);
-      if (x < 0 || x >= layout::SCREEN_WIDTH)
-        continue;
-
-      // Above the water the dolphin is lit; the part still submerged is drawn
-      // in the water colour so it reads as being under the surface instead of
-      // being clipped off.
-      tft.drawPixel(x, y, y < WATER_Y ? theme::VIZ_BRIGHT : theme::VIZ_GLOW);
-    }
-  }
-
-  // Eye, punched out after the body so it is not overwritten by it.
-  const int eyeRowY = bodyTop + DOLPHIN_EYE_ROW;
-  const int eyeX = noseX + (facingRight ? -DOLPHIN_EYE_FROM_NOSE : DOLPHIN_EYE_FROM_NOSE);
-  if (eyeRowY > SCENE_TOP && eyeRowY < WATER_Y && eyeX > 0 && eyeX < layout::SCREEN_WIDTH - 1)
-  {
-    tft.fillRect(eyeX, eyeRowY, 2, 2, TFT_BLACK);
-    tft.drawPixel(eyeX, eyeRowY, theme::VIZ_PEAK);
-  }
-
-  // Splash rings where the dolphin broke the surface.
-  if (dolphinSplash > 0)
-  {
-    const int splashX = dolphinDirection > 0 ? TRAVEL_LEFT : TRAVEL_LEFT + TRAVEL_SPAN;
-    const int radius = (10 - dolphinSplash) * 4 + 3;
-    tft.drawFastHLine(clampInt(splashX - radius, 0, 319), WATER_Y - 1,
-                      clampInt(radius * 2, 1, 320), theme::VIZ_PEAK);
-    tft.drawFastHLine(clampInt(splashX - radius / 2, 0, 319), WATER_Y - 3,
-                      clampInt(radius, 1, 320), theme::VIZ_BRIGHT);
-    --dolphinSplash;
-  }
-
-  // The sea itself: the spectrum, hanging down from the water line.
-  for (size_t i = 0; i < BANDS; ++i)
-  {
-    const int depth = 6 + (levels[i] * 40) / 100;
-    const int x = 8 + static_cast<int>(i) * 19;
-    tft.fillRect(x, WATER_Y + 1, 16, depth, theme::vizBandHue(i, BANDS));
-  }
-
-  endFrame(tft);
-  present();
-}
 
 // ---------------------------------------------------------------------------
 // SPECTRUM ARC
@@ -1145,6 +991,85 @@ void VisualizerRenderer::drawAnimationPlayButton(TFT_eSPI &target)
   // primitive TFT_eSPI has, which is exactly one more than this needs.
   target.fillTriangle(cx - 10, cy - 14, cx - 10, cy + 14, cx + 16, cy,
                       theme::VIZ_BRIGHT);
+
+  // Only offered while paused. Mid-playback the frame is the point and the
+  // controls shrink to the stop square above.
+  drawAnimationListButton(target);
+}
+
+// The button that opens the selector. Bottom-left, out of the way of the play
+// button in the middle. Must match ANIMATION_LIST_ZONE in touchScreen.cpp;
+// both rectangles are written once here and once there and must agree.
+void VisualizerRenderer::drawAnimationListButton(TFT_eSPI &target)
+{
+  constexpr int X = 10;
+  constexpr int Y = 198;
+  constexpr int W = 40;
+  constexpr int H = 36;
+
+  target.drawRoundRect(X, Y, W, H, 6, theme::VIZ_DEEP);
+  // Three bars: the one shape that reads as "a list" at this size.
+  for (int i = 0; i < 3; ++i)
+    target.drawFastHLine(X + 10, Y + 11 + i * 7, 20, theme::VIZ_MID);
+}
+
+// The selector. The PIONEER page becomes a list of what is on the card and
+// goes back to being a page once a row is picked. Drawn on force only - it is
+// static, and repainting it every frame would flicker the highlight.
+void VisualizerRenderer::drawAnimationMenu()
+{
+  TFT_eSPI &tft = canvas();
+
+  beginFrame(tft);
+  tft.fillRect(0, SCENE_TOP, layout::SCREEN_WIDTH, SCENE_HEIGHT, TFT_BLACK);
+
+  tft.setTextColor(theme::VIZ_BRIGHT, TFT_BLACK);
+  tft.drawString("ANIMATION", MENU_LEFT, SCENE_TOP + 6, 2);
+  tft.drawFastHLine(MENU_LEFT, SCENE_TOP + 24, MENU_RIGHT - MENU_LEFT,
+                    theme::VIZ_DEEP);
+
+  const size_t count = animation.packCount();
+  if (count == 0)
+  {
+    tft.setTextColor(theme::VIZ_GLOW, TFT_BLACK);
+    tft.drawCentreString("NOTHING IN /anim", SCENE_CENTRE_X, 120, 2);
+    endFrame(tft);
+    present();
+    return;
+  }
+
+  const size_t current = animation.currentPackIndex();
+  for (size_t i = 0; i < count; ++i)
+  {
+    const int top = MENU_TOP + static_cast<int>(i) * MENU_ROW_HEIGHT;
+    // A row that would run off the bottom is not drawn, because it could not be
+    // tapped either - the hit test derives the row from the same numbers.
+    if (top + MENU_ROW_HEIGHT > SCENE_BOTTOM)
+      break;
+
+    const bool selected = i == current;
+    if (selected)
+    {
+      tft.fillRect(MENU_LEFT - 6, top - 2, MENU_RIGHT - MENU_LEFT + 12,
+                   MENU_ROW_HEIGHT, theme::VIZ_CORE);
+      tft.drawFastHLine(MENU_LEFT - 6, top - 2, MENU_RIGHT - MENU_LEFT + 12,
+                        theme::VIZ_DEEP);
+      // A caret rather than a tick: it points at the row without needing a
+      // glyph the built-in fonts do not have.
+      tft.fillTriangle(MENU_LEFT - 2, top + 3, MENU_LEFT - 2, top + 13,
+                       MENU_LEFT + 5, top + 8, theme::VIZ_BRIGHT);
+    }
+
+    tft.setTextColor(selected ? theme::VIZ_PEAK : theme::VIZ_MID, TFT_BLACK);
+    tft.drawString(animation.packNameAt(i), MENU_LEFT + 12, top + 2, 2);
+  }
+
+  tft.setTextColor(theme::VIZ_DEEP, TFT_BLACK);
+  tft.drawCentreString("tap a row  -  X backs out", SCENE_CENTRE_X,
+                       SCENE_BOTTOM - 14, 1);
+
+  endFrame(tft);
+  present();
 }
 
 void VisualizerRenderer::drawPioneer(const Frame &frame, bool force)

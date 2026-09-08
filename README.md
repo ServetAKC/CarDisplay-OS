@@ -74,6 +74,26 @@ RGB565, which is the difference between 192 KB/s off the card at 24 FPS and
 3 MB/s. The single bit picks background or palette colour, so the animation
 inherits the green-cyan rather than fighting it.
 
+The packs that ship are the **original Pioneer animations**, not imitations of
+them. Pioneer let owners load `.lkd` files onto units like the DEH-P7600MP over
+CD or PC link; the [carozerra](https://github.com/youxufkhan/carozerra) project
+reverse-engineered that format, and `tools/lkd_to_anm.py` converts one straight
+to a pack:
+
+```
+python tools/lkd_to_anm.py movie8_f.lkd -o firmware_assets/dolphins.anm --dither --stretch
+```
+
+Use `--dither` (Bayer 4x4, the same trick the panel itself used to fake grey).
+The source has only four grey levels and a hard threshold flattens the artwork
+into noise. `--stretch` pulls those four levels out to the full range first.
+
+Eight of them are installed by default: `dolphins`, `carrozzeria`, `reef`,
+`flowers`, `canyon`, `city`, `roadster`, `mecha` - all 256x64, 60 frames, 17 fps.
+
+For artwork that did not come off a head unit, `make_animation.py` still builds
+a pack from a PNG sequence or a GIF:
+
 ```
 python tools/make_animation.py frames/ -o dolphin.anm --fps 12
 python tools/make_animation.py clip.gif -o dolphin.anm --fps 12
@@ -136,20 +156,24 @@ The card lives inside the unit, and not everybody has a reader. Same trick the
 Japanese font uses: the pack is baked into a one-time firmware that writes it to
 the card.
 
-1. Build the pack into `firmware_assets/anim.anm`:
+The installer carries a *list* of packs and writes them all in one pass, so
+this is one upload however many animations are in it.
 
-   ```
-   python tools/make_dolphin_pack.py            # the leaping dolphin
-   python tools/make_animation.py clip.gif -o firmware_assets/anim.anm
-   ```
+1. In PlatformIO Project Tasks open `cyd2usb_anim_installer` and click Upload.
+2. Wait until the CYD shows `ANIM READY` (the screen counts `3/8` as it goes).
+3. Open `cyd2usb` and click Upload.
 
-2. In PlatformIO Project Tasks open `cyd2usb_anim_installer` and click Upload.
-3. Wait until the CYD shows `ANIM READY`.
-4. Open `cyd2usb` and click Upload.
+The set it ships with is the eight original Pioneer animations above. To change
+it, edit **both** `board_build.embed_files` in `platformio.ini` and the
+`ANIM_INSTALLER_PACKS` table in `SpotifyDiyThing/animationInstaller.h`. They
+have to agree: the linker only emits symbols for files it actually embedded, so
+a name in one and not the other is a link error rather than a silent skip.
 
-It lands as `/anim/dolphin.anm`. To install a second pack beside the first
-rather than over it, add `-DCARDISPLAY_ANIM_NAME='"racecar"'` to that
-environment's `build_flags` and upload it again.
+Keep the list at eight or fewer. `AnimationPlayer::MAX_PACKS` is 8, so a ninth
+pack would be written to the card and then never played.
+
+A pack already on the card at the right size is left alone, so re-running the
+installer after adding one does not rewrite the others.
 
 `tools/make_dolphin_pack.py` reads the sprite out of `visualizerModes.cpp`
 rather than keeping its own copy, so editing the dolphin art changes both the

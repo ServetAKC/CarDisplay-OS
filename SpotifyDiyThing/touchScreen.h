@@ -24,7 +24,14 @@ enum class TouchAction : int8_t
   PreviousVisualizerStyle,
   SkipWiFiWait,
   ToggleAnimationPlayback,
-  OpenOfflineVisualizer
+  OpenOfflineVisualizer,
+
+  // The animation selector. Opening and closing it are two distinct actions
+  // rather than one toggle, because the renderer also closes the menu by
+  // itself once a row is picked and a toggle would then reopen it.
+  OpenAnimationMenu,
+  CloseAnimationMenu,
+  PickAnimation
 };
 
 void touchSetup();
@@ -47,3 +54,13 @@ void setTouchConnectingMode(bool active);
 // in the middle of the overlay, which has to be tested before the left/right
 // mode split or it would just be another "next mode" tap.
 void setTouchAnimationMode(bool active);
+
+// True while the animation selector is covering the scene. It takes the whole
+// overlay: every row is a pick and the left/right mode split is off, or
+// choosing an animation on the left would also step back a mode.
+void setTouchAnimationMenu(bool active);
+
+// Y of the press that produced the action just taken. Only meaningful for
+// PickAnimation, where the row is the payload the enum cannot carry. Read it
+// straight after takeTouchAction(); the next press overwrites it.
+int16_t lastTouchY();

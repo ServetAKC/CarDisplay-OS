@@ -11,7 +11,7 @@ namespace
 constexpr const char *ANIMATION_DIR = "/anim";
 
 // Only the leaf name, without the directory or the extension, for the chrome
-// row. "/anim/dolphin.anm" becomes "DOLPHIN".
+// row. "/anim/dolphins.anm" becomes "DOLPHINS".
 void shortName(const char *path, char *out, size_t outSize)
 {
   const char *slash = strrchr(path, '/');
@@ -87,6 +87,31 @@ const char *AnimationPlayer::currentPackName() const
   if (!packOpen || packIndex >= packTotal)
     return "";
   return packName[packIndex];
+}
+
+const char *AnimationPlayer::packNameAt(size_t index) const
+{
+  if (index >= packTotal)
+    return "";
+  return packName[index];
+}
+
+bool AnimationPlayer::selectPack(size_t index)
+{
+  if (index >= packTotal)
+    return false;
+  if (packOpen && index == packIndex)
+    return true;
+
+  // openPack() closes the current pack before it opens the new one, so a failed
+  // switch would leave nothing playing. Reopen the old one if that happens -
+  // a card pulled mid-menu should drop back to what was on screen, not to a
+  // blank scene.
+  const size_t previous = packIndex;
+  if (openPack(index))
+    return true;
+  openPack(previous);
+  return false;
 }
 
 bool AnimationPlayer::open()

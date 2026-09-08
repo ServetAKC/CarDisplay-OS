@@ -62,6 +62,17 @@ public:
   // Name of the pack now playing, for the chrome row. Empty when idle.
   const char *currentPackName() const;
 
+  // The selector needs the whole list, not just the one open: a name per row
+  // and the index to tick. Names come back even before open() has allocated
+  // the frame buffer, because begin() fills them from the directory scan.
+  const char *packNameAt(size_t index) const;
+  size_t currentPackIndex() const { return packIndex; }
+
+  // Jump straight to one pack instead of waiting for the show to reach it.
+  // Returns false if the index is out of range or the card has gone away, in
+  // which case whatever was open stays open.
+  bool selectPack(size_t index);
+
   // Size of the frames in the open pack, so the caller can centre it and decide
   // whether there is room left for anything else. Zero when nothing is open.
   int frameWidth() const { return packOpen ? header.width : 0; }

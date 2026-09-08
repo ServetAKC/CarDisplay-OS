@@ -64,6 +64,17 @@ public:
   // not need either of them.
   void toggleAnimationPlayback();
 
+  // The animation selector. The PIONEER page turns into a list of the packs on
+  // the card and back again; the display arms the menu's hotspot map while it
+  // is up, which is why it has to be able to ask.
+  bool isAnimationMenuOpen() const { return animationMenuOpen; }
+  void openAnimationMenu();
+  void closeAnimationMenu();
+
+  // Picks the row under a press. Out-of-range Y closes the menu without
+  // changing anything, so a stray tap on the margin is not a silent no-op.
+  void pickAnimationAt(int16_t touchY);
+
   // The overlay covers the player screen, so brightness is cycled from a sun in
   // the chrome row. The value is pushed in rather than read, because the
   // backlight belongs to the display, not to the renderer.
@@ -77,7 +88,7 @@ public:
 
 private:
   static constexpr size_t PULSE_RING_BAR_COUNT = AudioVisualizer::BAR_COUNT * 2;
-  static constexpr size_t MODE_COUNT = 41;
+  static constexpr size_t MODE_COUNT = 40;
 
   // Particle counts for the modes that carry their own state.
   static constexpr size_t STAR_COUNT = 30;
@@ -120,6 +131,15 @@ private:
   AnimationPlayer animation;
   bool animationOpen = false;
   bool animationPlaying = false;
+  bool animationMenuOpen = false;
+
+  // Geometry of the selector. Written once here and read by both the drawing
+  // and the hit test, so a row cannot be drawn in one place and tested in
+  // another.
+  static constexpr int MENU_TOP = 62;
+  static constexpr int MENU_ROW_HEIGHT = 21;
+  static constexpr int MENU_LEFT = 18;
+  static constexpr int MENU_RIGHT = 302;
   uint8_t brightnessPercent = 100;
 
   bool micOk = false;
@@ -166,10 +186,6 @@ private:
   unsigned long lastWaterfallAdvanceTime = 0;
 
   // v0.4 mode state.
-  uint8_t dolphinPhase = 0;    // 0..255 position along the leap
-  int8_t dolphinDirection = 1; // +1 travelling right, -1 travelling left
-  uint8_t dolphinArc = 0;      // jump height, smoothed from loudness
-  uint8_t dolphinSplash = 0;   // splash countdown at the water line
   uint8_t jetX[JET_COUNT] = {};
   uint8_t jetY[JET_COUNT] = {};
   uint8_t jetSpeed[JET_COUNT] = {};
@@ -202,6 +218,8 @@ private:
   void drawChrome();
   void drawBrightnessSun();
   void drawAnimationPlayButton(TFT_eSPI &target);
+  void drawAnimationListButton(TFT_eSPI &target);
+  void drawAnimationMenu();
   void drawMicError();
 
   uint16_t waterfallColor(uint8_t level) const;
@@ -229,7 +247,6 @@ private:
   void drawPhaseScope(const Frame &frame, bool force);
 
   // v0.4 modes.
-  void drawDolphin(const Frame &frame, bool force);
   void drawSpectrumArc(const Frame &frame, bool force);
   void drawTwinTowers(const Frame &frame, bool force);
   void drawWaveTunnel(const Frame &frame, bool force);

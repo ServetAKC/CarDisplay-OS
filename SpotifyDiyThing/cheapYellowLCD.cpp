@@ -595,13 +595,29 @@ void CheapYellowDisplay::checkForInput()
   case TouchAction::NextVisualizerStyle:
     visualizer.nextStyle();
     setTouchAnimationMode(visualizer.isAnimationMode());
+    setTouchAnimationMenu(visualizer.isAnimationMenuOpen());
     break;
   case TouchAction::PreviousVisualizerStyle:
     visualizer.previousStyle();
     setTouchAnimationMode(visualizer.isAnimationMode());
+    setTouchAnimationMenu(visualizer.isAnimationMenuOpen());
     break;
   case TouchAction::ToggleAnimationPlayback:
     visualizer.toggleAnimationPlayback();
+    break;
+  case TouchAction::OpenAnimationMenu:
+    visualizer.openAnimationMenu();
+    setTouchAnimationMenu(visualizer.isAnimationMenuOpen());
+    break;
+  case TouchAction::CloseAnimationMenu:
+    visualizer.closeAnimationMenu();
+    setTouchAnimationMenu(false);
+    break;
+  case TouchAction::PickAnimation:
+    // The row is the Y of the press; the enum cannot carry it, so it is read
+    // back from the touch layer that latched the two together.
+    visualizer.pickAnimationAt(lastTouchY());
+    setTouchAnimationMenu(visualizer.isAnimationMenuOpen());
     break;
   case TouchAction::ToggleVisualizer:
     toggleVisualizerMode();
@@ -864,12 +880,14 @@ void CheapYellowDisplay::toggleVisualizerMode()
     visualizer.setBrightnessPercent(backlight.effectivePercent());
     visualizer.open();
     setTouchAnimationMode(visualizer.isAnimationMode());
+    setTouchAnimationMenu(visualizer.isAnimationMenuOpen());
     return;
   }
 
   visualizer.close();
   setTouchVisualizerMode(false);
   setTouchAnimationMode(false);
+  setTouchAnimationMenu(false);
   albumCache.setPaused(false);
 
   if (wifiSetupMode)
